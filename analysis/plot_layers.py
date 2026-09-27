@@ -25,22 +25,28 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RESULTS = os.path.join(ROOT, "results")
 
 args = sys.argv[1:]
-BIT = int(args[args.index("--bit") + 1]) if "--bit" in args else 30
+BIT_ARG = args[args.index("--bit") + 1] if "--bit" in args else "30"
+ALL_BITS = [31, 30, 29, 24, 23, 22]
+# "--bit all" gives the EXPECTED rate for a uniform-random single-bit flip:
+# the six swept bits summed and divided by all 32 positions. The 26 unswept
+# positions are mantissa bits below 22, which change a value by < 0.1% and
+# measured 0.0-0.5% at bit 22, so treating them as zero is a slight underestimate.
+BIT = None if BIT_ARG == "all" else int(BIT_ARG)
+_tag = "all" if BIT is None else f"{BIT:02d}"
 OUT = (args[args.index("--out") + 1] if "--out" in args
-       else os.path.join(RESULTS, f"layer_sensitivity_bit{BIT:02d}.png"))
+       else os.path.join(RESULTS, f"layer_sensitivity_bit{_tag}.png"))
 
 # validated 2-hue categorical pair (dataviz reference palette slots 1 and 2)
 C_SDC, C_DUE = "#2a78d6", "#eb6834"
 SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#dcdcd6"
 
-CAMPAIGNS = {
-    "weight": f"campaign_bit{BIT:02d}_n16.csv",
-    "act": f"act_persistent_bit{BIT:02d}_n16.csv",
-}
+def fnames(bit):
+    return {"weight": f"campaign_bit{bit:02d}_n16.csv",
+            "act": f"act_persistent_bit{bit:02d}_n16.csv"}
 
 
 def block_of(layer):
@@ -64,10 +70,25 @@ def rates(fname):
     return {k: (100 * v[0] / v[2], 100 * v[1] / v[2]) for k, v in agg.items()}
 
 
-W = rates(CAMPAIGNS["weight"])
-A = rates(CAMPAIGNS["act"])
-if W is None or A is None:
-    sys.exit(f"missing results for bit {BIT}; run the campaigns first")
+def expected_rates(which):
+    """Sum the six swept bits, divide by 32 -> per-random-bit-flip expectation."""
+    tot = defaultdict(lambda: [0.0, 0.0])
+    for b in ALL_BITS:
+        r = rates(fnames(b)[which])
+        if r is None:
+            sys.exit(f"missing results for bit {b}; run the full sweep first")
+        for k, (sdc, due) in r.items():
+            tot[k][0] += sdc; tot[k][1] += due
+    return {k: (v[0] / 32, v[1] / 32) for k, v in tot.items()}
+
+
+if BIT is None:
+    W, A = expected_rates("weight"), expected_rates("act")
+else:
+    W = rates(fnames(BIT)["weight"])
+    A = rates(fnames(BIT)["act"])
+    if W is None or A is None:
+        sys.exit(f"missing results for bit {BIT}; run the campaigns first")
 
 # depth order: numeric blocks ascending, then the three head branches
 numeric = sorted((int(k) for k in W if k.isdigit()))
@@ -102,16 +123,22 @@ ax.spines["bottom"].set_color(GRID)
 ax.set_xticks(list(x))
 ax.set_xticklabels(labels, color=INK2, fontsize=9)
 ax.set_xlim(-0.6, len(order) - 0.4)
-ax.set_ylim(0, 100)
-ax.set_yticks(range(0, 101, 20))
-ax.set_yticklabels([f"{v}%" for v in range(0, 101, 20)], color=INK2, fontsize=9)
+ymax = 100 if BIT is not None else 5 * (1 + int(max(
+    max(v) for d in (W, A) for v in d.values()) // 5))
+ax.set_ylim(0, ymax)
+step = 20 if ymax > 40 else 1 if ymax <= 6 else 5
+ticks = list(range(0, ymax + 1, step))
+ax.set_yticks(ticks)
+ax.set_yticklabels([f"{v}%" for v in ticks], color=INK2, fontsize=9)
 ax.tick_params(length=0)
 
 ax.set_xlabel("conv block, in network depth order  →  head branches last",
               color=INK2, fontsize=9.5, labelpad=26)
-ax.set_ylabel("per-image rate", color=INK2, fontsize=9.5)
-ax.set_title(f"YOLOv8n per-block fault sensitivity, bit {BIT}"
-             f"  ·  colour = error class, hatch = activation fault",
+ax.set_ylabel("per-image rate" if BIT is not None
+              else "expected rate per random bit flip", color=INK2, fontsize=9.5)
+_title = (f"YOLOv8n per-block fault sensitivity, bit {BIT}" if BIT is not None
+          else "YOLOv8n per-block fault sensitivity, averaged over all 32 bit positions")
+ax.set_title(f"{_title}  ·  colour = error class, hatch = activation fault",
              color=INK, fontsize=12, pad=14, loc="left")
 
 # section spans: faint dividers plus a centred name under each run

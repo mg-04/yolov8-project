@@ -19,7 +19,7 @@ import fi_lib
 
 logging.getLogger("ultralytics").setLevel(logging.ERROR)
 
-ROOT = "/home/mgong2/tools/yolov8-project"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEIGHTS = f"{ROOT}/yolov8n.pt"
 DATA = "coco128.yaml"
 IMG_DIR = "/home/mgong2/datasets/coco128/images/train2017"

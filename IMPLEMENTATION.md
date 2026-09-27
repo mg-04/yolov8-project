@@ -6,42 +6,71 @@ The fault model, method and results live in the README.
 
 ## Scripts
 
+```
+src/         the injection harness
+analysis/    reporting and inspection tools
+demos/       superseded single-layer scripts, kept for reference
+results/     campaign CSVs, logs and plots  (gitignored)
+reference/   copies of the Ultralytics YOLOv8 architecture YAMLs  (gitignored)
+```
+
+Paths are derived from each script's own location, so the tree can be moved.
+
+### `src/` -- harness
+
 | script | role |
 |---|---|
-| `fi_lib.py` | Shared primitives, imported by both campaigns so they classify identically: `flip`, `iou`, `compare`, `make_detector`, `outcome`. |
-| `campaign.py` | Weight campaign, all 64 conv layers. `./campaign.py [samples] [bit]` |
-| `campaign_act.py` | Activation campaign. `./campaign_act.py {persistent\|transient} [samples] [bit]` |
-| `analyze.py` | Summarizes a CSV: per-section rates + Wilson intervals, per-layer ranking, outcome buckets. |
-| `summarize.py` | Cross-campaign tables from `results/*.csv`: per-bit, per-section, per-layer, depth, parameter-weighted. Reports both rate definitions. `./summarize.py [bits\|sections\|layers\|depth\|weighted] [--bit N] [--csv out.csv]` |
-| `plot_layers.py` | Grouped bar chart of per-block sensitivity: 4 bars per block (weight/activation x SDC/DUE). `./plot_layers.py [--bit N] [--out f.png]` |
+| `fi_lib.py` | Shared primitives, imported by both campaigns so they classify identically: `flip`, `iou`, `compare`, `make_detector`, `outcome`. Not executable. |
+| `campaign.py` | Weight campaign, all 64 conv layers. `./src/campaign.py [samples] [bit]` |
+| `campaign_act.py` | Activation campaign. `./src/campaign_act.py {persistent\|transient} [samples] [bit]` |
+
+### `analysis/` -- reporting
+
+| script | role |
+|---|---|
+| `summarize.py` | Cross-campaign tables from `results/*.csv`: per-bit, per-section, per-layer, layer-by-bit, depth, parameter-weighted. Reports both rate definitions. `./analysis/summarize.py [bits\|sections\|layers\|layerbits\|depth\|weighted] [--bit N] [--csv out.csv]` |
+| `plot_layers.py` | Grouped bar chart of per-block sensitivity: 4 bars per block (weight/activation x SDC/DUE). `./analysis/plot_layers.py [--bit N\|all] [--out f.png]` |
+| `analyze.py` | Summarizes a single CSV: per-section rates, per-layer ranking, outcome buckets. `./analysis/analyze.py [csv]` |
 | `structure.py` | Model inspection. `--convs` lists the 64 targets in campaign order. |
+
+### `demos/` -- superseded
+
+Single-layer scripts from the exploratory phase. Kept because they are easier to
+read than the campaigns, but their results are superseded and `inject_act.py`
+still has the every-forward-pass hook bug described below.
+
+| script | role |
+|---|---|
 | `bitprobe.py` | No inference; flips all 32 bits of one weight. Establishes the encoding asymmetry. |
-| `inject_demo.py`, `inject_act.py` | Single-layer demos, superseded. `inject_act.py`'s hook fires every pass. |
-| `get_coco_val.sh` | Downloads COCO val2017 without the 19 GB train set. |
+| `inject_demo.py` | Single-layer weight injection vs mAP, per bit position. |
+| `inject_act.py` | Activation vs weight flips at one layer. |
+| `eval.py` | Plain baseline evaluation. |
 
-Outputs: `results/campaign_bit<BB>_n<N>.csv`,
-`results/act_{persistent,transient}_bit<BB>_n<N>.csv`, plus `.log` files.
+### root
 
----
+| file | role |
+|---|---|
+| `get_coco_val.sh` | Downloads COCO val2017 (5,000 held-out images) without the 19 GB train set. |
+| `coco-val2017.yaml` | Evaluation-only dataset config for the held-out split. |
 
 ## Reproducing
 
 ```bash
-./campaign.py 16 30                 # weights,   ~29 min (bit 30), ~9 min others
-./campaign_act.py transient 16 30   # SEU,       ~40 s
-./campaign_act.py persistent 16 30  # stuck-at,  ~12 min
-./summarize.py                      # all cross-campaign tables
-./analyze.py results/campaign_bit30_n16.csv    # single-CSV detail
-./structure.py --convs              # the 64 targets, in campaign order
+./src/campaign.py 16 30                 # weights,   ~29 min (bit 30), ~9 min others
+./src/campaign_act.py transient 16 30   # SEU,       ~40 s
+./src/campaign_act.py persistent 16 30  # stuck-at,  ~12 min
+./analysis/summarize.py                      # all cross-campaign tables
+./analysis/analyze.py results/campaign_bit30_n16.csv    # single-CSV detail
+./analysis/structure.py --convs              # the 64 targets, in campaign order
 ```
 
 Full sweep, 3 campaigns × 6 bits, ~2.5 h:
 
 ```bash
 screen -dmS sweep bash -c '
-  for b in 31 30 29 24 23 22; do ./campaign.py 16 $b > results/campaign_bit${b}_n16.log 2>&1; done
-  for b in 31 30 29 24 23 22; do ./campaign_act.py transient 16 $b > results/act_transient_bit${b}_n16.log 2>&1; done
-  for b in 31 30 29 24 23 22; do ./campaign_act.py persistent 16 $b > results/act_persistent_bit${b}_n16.log 2>&1; done
+  for b in 31 30 29 24 23 22; do ./src/campaign.py 16 $b > results/campaign_bit${b}_n16.log 2>&1; done
+  for b in 31 30 29 24 23 22; do ./src/campaign_act.py transient 16 $b > results/act_transient_bit${b}_n16.log 2>&1; done
+  for b in 31 30 29 24 23 22; do ./src/campaign_act.py persistent 16 $b > results/act_persistent_bit${b}_n16.log 2>&1; done
 '
 ```
 

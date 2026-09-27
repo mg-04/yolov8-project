@@ -17,8 +17,25 @@ Python 3.11.9 (pyenv) · Ultralytics 8.4.156 · PyTorch 2.5.1+cu121 · RTX 4070
 Sweeps use coco128 for speed (~1.5 s per evaluation vs 26 s); 0.3684 is the number
 to report.
 
-Harness details (scripts, correctness guarantees, bugs found, and how to reproduce
-the runs) are in **[IMPLEMENTATION.md](IMPLEMENTATION.md)**.
+**Layout**
+
+```
+src/         injection harness      fi_lib.py  campaign.py  campaign_act.py
+analysis/    reporting tools        summarize.py  plot_layers.py  analyze.py  structure.py
+demos/       superseded one-off scripts from the exploratory phase
+results/     campaign CSVs, logs and plots
+```
+
+```bash
+./src/campaign.py 16 30                 # weight campaign at bit 30
+./src/campaign_act.py persistent 16 30  # activation campaign
+./analysis/summarize.py                 # all cross-campaign tables
+./analysis/plot_layers.py --bit all     # per-block plot, averaged over bit positions
+```
+
+Scripts derive paths from their own location, so the tree can be moved. Harness
+details (correctness guarantees, bugs found, full reproduction steps) are in
+**[IMPLEMENTATION.md](IMPLEMENTATION.md)**.
 
 ---
 
@@ -154,7 +171,7 @@ sensitive but an upward-biased rate. Per-image counts (`v_masked`, `v_benign`,
 # Results
 
 18,432 injections: 3 campaigns × 6 bit positions × 1,024, on coco128.
-All tables below come from `./summarize.py` and use the **per-image rate**,
+All tables below come from `./analysis/summarize.py` and use the **per-image rate**,
 the fraction of individual golden-vs-corrupted image comparisons that were SDC or DUE.
 <!-- DUE. The alternative "any of 16 images" flag (`sdc_critical`) runs 4–12× higher and
 is not used here. -->
@@ -198,7 +215,7 @@ positions are 100% undetectable from the output.**
 
 ### Per-Block, All Four Measures
 
-> `./plot_layers.py`. Colour = error class, hatch = activation fault.
+> `./analysis/plot_layers.py`. Colour = error class, hatch = activation fault.
 
 ![per-block fault sensitivity, bit 30](results/layer_sensitivity_bit30.png)
 
@@ -357,9 +374,37 @@ but 42.4% against weight faults. It is not a safe region; it is a region safe ag
 one of three fault classes. -->
 
 
+## Averaged Over All Bit Positions
+
+> `./analysis/plot_layers.py --bit all`. The six swept bits summed and divided by
+> all 32 positions, i.e. the expected rate if one random bit in the value flips.
+> The 26 unswept positions are mantissa bits below 22, which measured 0.0-0.5% at
+> bit 22 and change a value by < 0.1%, so treating them as zero is a slight
+> underestimate.
+
+![per-block fault sensitivity averaged over all bits](results/layer_sensitivity_bitall.png)
+
+This is the field-relevant view, and it ranks the layers differently again:
+
+- **`model.22.dfl.conv` becomes the tallest bar in the network** at 6.3% weight SDC,
+against ~3% for a typical backbone block. At bit 30 alone it was the *shortest* at
+30%. Its 88% at bit 29 dominates once every bit position is weighted equally, and
+16 parameters make it the cheapest thing in the model to protect.
+- **Everything else flattens to 2-4%.** Once bit 30 stops being the only bit
+considered, the sharp backbone/neck/head structure of the bit-30 plot mostly
+disappears. Blocks 0-21 are within a factor of two of each other.
+- **`cv2` drops to the bottom** at 1.3%, the only block clearly below the pack.
+- The whole-model expectation is **~2.9%**, or roughly 1 upset in 35 causing a
+silent failure.
+
+The practical reading: at bit 30 you would harden the mid-backbone and the class
+head; averaged over all bits you would harden `dfl` first and then worry about
+uniform coverage. Which answer is right depends on whether a deployment's fault
+distribution is uniform across bit positions.
+
 ## Additional Testing on Bits 31 and 29
 
-> `./summarize.py layerbits`. Weight campaign, per-image SDC.
+> `./analysis/summarize.py layerbits`. Weight campaign, per-image SDC.
 
 | layer | section | bit 31 | bit 30 | bit 29 |
 |---|---|---|---|---|

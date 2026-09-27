@@ -4,10 +4,11 @@
 Reports Wilson score intervals on the critical-SDC rate, since a bare
 percentage from N=16 samples carries no useful precision on its own.
 """
-import csv, math, sys
+import csv, math, os, sys
 from collections import defaultdict
 
-CSV = sys.argv[1] if len(sys.argv) > 1 else "/home/mgong2/tools/yolov8-project/campaign_results.csv"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CSV = sys.argv[1] if len(sys.argv) > 1 else f"{ROOT}/results/campaign_bit30_n16.csv"
 GOLDEN = 0.4451  # coco128 mAP50-95, yolov8n
 
 

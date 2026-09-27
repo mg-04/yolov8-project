@@ -26,7 +26,7 @@ Usage:
 import csv, glob, math, os, sys
 from collections import defaultdict
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RESULTS = os.path.join(ROOT, "results")
 BITS = [31, 30, 29, 24, 23, 22]
 FIELD = {31: "sign", 30: "exp MSB", 29: "exp", 24: "exp", 23: "exp", 22: "mant MSB"}

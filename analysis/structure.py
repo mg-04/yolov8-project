@@ -7,6 +7,7 @@
   ./structure.py --block 9    full module tree for one top-level block
   ./structure.py --raw        torch's own repr of the whole model
 """
+import os
 import logging, sys
 import torch
 from ultralytics import YOLO
@@ -15,7 +16,7 @@ from ultralytics.utils.torch_utils import model_info
 logging.getLogger("ultralytics").setLevel(logging.ERROR)
 args = sys.argv[1:]
 
-m = YOLO("/home/mgong2/tools/yolov8-project/yolov8n.pt")
+m = YOLO(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "yolov8n.pt"))
 m.model.fuse()
 m.model.eval()
 core = m.model
