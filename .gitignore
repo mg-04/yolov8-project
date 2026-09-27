@@ -1,0 +1,7 @@
+runs
+results
+reference
+yolov8-env
+*.csv
+*.log
+__pycache__
