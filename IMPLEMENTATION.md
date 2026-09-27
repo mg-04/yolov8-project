@@ -10,7 +10,8 @@ The fault model, method and results live in the README.
 src/         the injection harness
 analysis/    reporting and inspection tools
 demos/       superseded single-layer scripts, kept for reference
-results/     campaign CSVs, logs and plots  (gitignored)
+results/     campaign CSVs and logs  (gitignored)
+figures/     plots referenced by the README  (tracked, so GitHub renders them)
 reference/   copies of the Ultralytics YOLOv8 architecture YAMLs  (gitignored)
 ```
 
@@ -29,7 +30,7 @@ Paths are derived from each script's own location, so the tree can be moved.
 | script | role |
 |---|---|
 | `summarize.py` | Cross-campaign tables from `results/*.csv`: per-bit, per-section, per-layer, layer-by-bit, depth, parameter-weighted. Reports both rate definitions. `./analysis/summarize.py [bits\|sections\|layers\|layerbits\|depth\|weighted] [--bit N] [--csv out.csv]` |
-| `plot_layers.py` | Grouped bar chart of per-block sensitivity: 4 bars per block (weight/activation x SDC/DUE). `./analysis/plot_layers.py [--bit N\|all] [--out f.png]` |
+| `plot_layers.py` | Grouped bar chart of per-block sensitivity: 4 bars per block (weight/activation x SDC/DUE). Writes to `figures/`. `./analysis/plot_layers.py [--bit N\|all] [--out f.png]` |
 | `analyze.py` | Summarizes a single CSV: per-section rates, per-layer ranking, outcome buckets. `./analysis/analyze.py [csv]` |
 | `structure.py` | Model inspection. `--convs` lists the 64 targets in campaign order. |
 

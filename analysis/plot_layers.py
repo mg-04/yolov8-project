@@ -27,6 +27,7 @@ from matplotlib.patches import Patch
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RESULTS = os.path.join(ROOT, "results")
+FIGURES = os.path.join(ROOT, "figures")   # tracked in git so GitHub renders them
 
 args = sys.argv[1:]
 BIT_ARG = args[args.index("--bit") + 1] if "--bit" in args else "30"
@@ -37,8 +38,9 @@ ALL_BITS = [31, 30, 29, 24, 23, 22]
 # measured 0.0-0.5% at bit 22, so treating them as zero is a slight underestimate.
 BIT = None if BIT_ARG == "all" else int(BIT_ARG)
 _tag = "all" if BIT is None else f"{BIT:02d}"
+os.makedirs(FIGURES, exist_ok=True)
 OUT = (args[args.index("--out") + 1] if "--out" in args
-       else os.path.join(RESULTS, f"layer_sensitivity_bit{_tag}.png"))
+       else os.path.join(FIGURES, f"layer_sensitivity_bit{_tag}.png"))
 
 # validated 2-hue categorical pair (dataviz reference palette slots 1 and 2)
 C_SDC, C_DUE = "#2a78d6", "#eb6834"

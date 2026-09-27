@@ -23,7 +23,8 @@ to report.
 src/         injection harness      fi_lib.py  campaign.py  campaign_act.py
 analysis/    reporting tools        summarize.py  plot_layers.py  analyze.py  structure.py
 demos/       superseded one-off scripts from the exploratory phase
-results/     campaign CSVs, logs and plots
+results/     campaign CSVs and logs  (gitignored)
+figures/     plots used in this README  (tracked)
 ```
 
 ```bash
@@ -217,7 +218,7 @@ positions are 100% undetectable from the output.**
 
 > `./analysis/plot_layers.py`. Colour = error class, hatch = activation fault.
 
-![per-block fault sensitivity, bit 30](results/layer_sensitivity_bit30.png)
+![per-block fault sensitivity, bit 30](figures/layer_sensitivity_bit30.png)
 
 ### Network Sensitivity Diagram
 
@@ -382,7 +383,7 @@ one of three fault classes. -->
 > bit 22 and change a value by < 0.1%, so treating them as zero is a slight
 > underestimate.
 
-![per-block fault sensitivity averaged over all bits](results/layer_sensitivity_bitall.png)
+![per-block fault sensitivity averaged over all bits](figures/layer_sensitivity_bitall.png)
 
 This is the field-relevant view, and it ranks the layers differently again:
 
@@ -421,7 +422,7 @@ distribution is uniform across bit positions.
 At bit 29 the per-block picture largely inverts: `dfl` and `model.0` light up, the
 deep backbone goes quiet:
 
-![per-block fault sensitivity, bit 29](results/layer_sensitivity_bit29.png)
+![per-block fault sensitivity, bit 29](figures/layer_sensitivity_bit29.png)
 
 ### Findings
 
