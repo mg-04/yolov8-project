@@ -13,6 +13,7 @@ The fault model, method and results live in the README.
 | `campaign_act.py` | Activation campaign. `./campaign_act.py {persistent\|transient} [samples] [bit]` |
 | `analyze.py` | Summarizes a CSV: per-section rates + Wilson intervals, per-layer ranking, outcome buckets. |
 | `summarize.py` | Cross-campaign tables from `results/*.csv`: per-bit, per-section, per-layer, depth, parameter-weighted. Reports both rate definitions. `./summarize.py [bits\|sections\|layers\|depth\|weighted] [--bit N] [--csv out.csv]` |
+| `plot_layers.py` | Grouped bar chart of per-block sensitivity: 4 bars per block (weight/activation x SDC/DUE). `./plot_layers.py [--bit N] [--out f.png]` |
 | `structure.py` | Model inspection. `--convs` lists the 64 targets in campaign order. |
 | `bitprobe.py` | No inference; flips all 32 bits of one weight. Establishes the encoding asymmetry. |
 | `inject_demo.py`, `inject_act.py` | Single-layer demos, superseded. `inject_act.py`'s hook fires every pass. |
@@ -150,23 +151,81 @@ garbage boxes" both read `0.0000`.
 
 # Next steps
 
-- Harden `model.22.dfl.conv` (**16 parameters**) — most sensitive layer in the network
-  at bits 29/24/31, and triplicating 16 values is free. Highest value per byte by a
-  wide margin.
-- Harden the three `cv3.*.2` class-output convs (19,200 params, 0.6%) — highest
-  absolute sensitivity at bit 30, across all three fault types
-- Extend the per-layer ranking to bits 24/23/22 and to the activation campaigns, to
-  see whether the large-weight/small-weight split holds throughout
-- Split DUE into detected-and-failed vs detected-but-benign; move the NaN check after
-  NMS for a harm-based variant
-- Evaluate Ranger-style activation clipping — bounding activations to their golden
-  range should reclaim the huge-but-finite (silent) cases, exactly the band a NaN
-  monitor misses
-- Add a paired bootstrap CI on the mAP delta
-- Re-run headline configurations on val2017
-- Compare FP32 / FP16 / INT8
-- Extend to compute faults (NVBitFI) — stored weights are the part most likely to be
-  ECC-protected already
+Status: the 18-run sweep (3 campaigns x 6 bits x 1,024 injections) is complete, and
+`summarize.py` / `plot_layers.py` regenerate every figure in the README from the
+CSVs. What follows is ordered by value per unit of work.
+
+## Tier 1: analysis on data already collected
+
+No new injections. Each is a change to `summarize.py` or a short script.
+
+**1. Thresholded NaN monitor.** The binary "any NaN" check has a 42% false-alarm
+rate against actual detection damage, but `out_nan` separates the two cleanly:
+
+```
+DUE rows with output fine   median      720 NaN   (0.10% of the tensor)
+DUE rows with output wrong  median  453,180 NaN   (71.5%)
+```
+
+Three orders of magnitude apart. Sweep a threshold on `out_nan`, plot precision and
+recall against it, and report the operating point. This converts a weak detector
+into a usable one and costs nothing but a plot.
+
+**2. Split DUE into detected-and-failed vs detected-but-benign.** Transient CSVs
+already carry `verdict` and `category` independently, so the split is a groupby.
+Weight and persistent CSVs record only per-error-class counts, so those need
+`fi_lib.outcome` to also return the category and the campaigns to tally it: about
+ten lines, then a re-run.
+
+**3. Per-layer ranking at bits 24, 23, 22 and for the activation campaigns.**
+`summarize.py layerbits` already takes a `bits` tuple and a `campaign` argument;
+this is a parameter change, not new code. Tests whether the large-weight /
+small-weight split seen at 31/30/29 holds throughout.
+
+**4. Simulated hardening.** Triplicating a layer means faults there are corrected,
+so the whole-model rate with layer L protected is the parameter-weighted sum with
+L's term dropped. Computable from the existing per-layer rates for any candidate
+set. Quantifies "what does protecting `dfl` + `cv3.*.2` actually buy" without
+running anything.
+
+## Tier 2: small experiments
+
+**5. Ranger-style activation clipping.** The highest-value mitigation, because the
+failure mode it targets (huge-but-finite values) is exactly the band a NaN monitor
+misses. Implementation:
+
+- calibration pass: forward hook over the golden model recording per-layer
+  activation min/max across the 128 images
+- defence: a clamp hook registered on every conv, composed with the injection hook
+  (register the clamp second so it runs after)
+- re-run the six activation campaigns with the clamp on, compare SDC rates
+
+The hook machinery already exists; this is a new hook plus a calibration script.
+Roughly 2 hours of compute for the re-run.
+
+**6. Move the NaN check after NMS.** One line in `fi_lib.make_detector`, turning
+DUE from "corruption reached the output tensor" into "corruption reached the
+detections a consumer sees". Report both; they answer different questions.
+
+**7. Headline configurations on val2017.** `coco-val2017.yaml` is ready and
+`get_coco_val.sh` has already downloaded the 5,000 images. At 26 s per `val()` a
+full sweep is ~75 h, so run bit 30 only, all three campaigns, as a check that the
+coco128 conclusions survive on held-out data.
+
+## Tier 3: larger work
+
+**8. Paired bootstrap CI on the mAP delta.** Needs per-image AP recorded during the
+campaign, which is a schema change plus a full re-run. Only worth it if mAP deltas
+are going to be reported as findings rather than as context.
+
+**9. FP32 / FP16 / INT8 comparison.** INT8 bounds the worst-case error at 128x
+rather than 10^38, so quantized models should be markedly more fault-tolerant, and
+that is the deployment-relevant case. Needs TensorRT export and an injection path
+that works on quantized weights, which the current FP32-only `flip()` does not.
+
+**10. Compute faults via NVBitFI.** Stored weights are the part most likely to
+already have ECC in a real deployment, which makes the compute path the more
+interesting target. Different injection level and a separate toolchain.
 
 # Glossary
 
