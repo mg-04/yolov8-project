@@ -442,6 +442,86 @@ layers, 224 of them in `model.22.dfl.conv` alone. That is why a 2.8% overall rat
 still resolves a per-layer ranking.
 
 
+## What the Damage Actually Looks Like
+
+> `./analysis/geometry/geom_sweep.py weight 128 30 29 22`. A separate sweep over 8
+> representative layers x 128 samples x 3 bits = 3,072 injections, 16 images each,
+> recording per-match box geometry and per-event object identity rather than counts.
+> 162,652 events. The layer subset spans depth, weight magnitude, branch type and
+> fault locality; it is not a basis for ranking layers.
+
+Golden baseline on the 16-image subset: **50 detections, 3.12 per image**, median
+object side 150px.
+
+### Benign outcomes are sub-pixel wobble
+
+| bit | injections | mean IoU | min IoU | centre shift / diagonal | area ratio |
+|---|---|---|---|---|---|
+| 22 | 260 | 0.975 | 0.860 | 0.0057 | 1.016 |
+| 29 | 284 | 0.986 | 0.908 | 0.0032 | 0.995 |
+| 30 | 199 | 0.944 | 0.688 | 0.0151 | 0.966 |
+
+Centre shift is normalized by the golden box diagonal, so 0.003-0.015 means the box
+moved **0.3-1.5% of its own size**. On a median 150px object that is **0.6-3.2
+pixels**. Area ratios sit at ~1.0, so it is translation, not resizing: measuring IoU
+alone would have conflated the two.
+
+So the outcome distribution is sharply bimodal. A fault either nudges a box by a
+pixel or two, or it destroys/invents a detection. There is almost nothing between.
+
+**One layer breaks the pattern.** Per-layer box shift at bit 29:
+
+| layer | n | mean IoU | shift / diagonal |
+|---|---|---|---|
+| **`model.22.dfl.conv`** | 11 | **0.895** | **0.0211** |
+| `model.0.conv` | 69 | 0.978 | 0.0053 |
+| `model.2.cv2.conv` | 90 | 0.990 | 0.0025 |
+| `model.4.cv2.conv` | 65 | 0.995 | 0.0010 |
+| `model.15.cv2.conv` | 40 | 0.997 | 0.0005 |
+| `model.5.conv` | 5 | 0.999 | 0.0003 |
+
+`model.22.dfl.conv` distorts geometry 4-7x more than any other layer. That is
+mechanically exact: it is the fixed projection that decodes box distributions into
+coordinates, so corrupting it perturbs box position *directly*, while every other
+layer can only affect boxes through the detection pipeline.
+
+### Object loss is unbiased; phantoms are not
+
+Each event compared against the golden distribution it was drawn from:
+
+| | small | medium | large | median conf |
+|---|---|---|---|---|
+| **golden** (control) | 22% | 18% | 60% | 0.555 |
+| lost (40,966) | 23% | 19% | 58% | 0.548 |
+| phantom (120,716) | 34% | 52% | 15% | **1.000** |
+| class_flip (970) | 29% | 25% | 46% | 0.447 |
+
+**Object loss carries no size or confidence bias.** Every column is within a point
+or two of golden. Corruption does not pick off small or marginal objects first, it
+removes them indiscriminately. This contradicts the obvious prediction.
+
+**Phantoms arrive at confidence 1.000.** Median and near-maximal mean. This is the
+most safety-relevant result here: corruption-induced false detections cannot be
+filtered by a confidence threshold, because they are *more* confident than any real
+detection. They also cluster at medium size (52% vs 18% in golden) and almost never
+appear large (15% vs 60%).
+
+**Class flips hit marginal detections** at confidence 0.447 against a 0.555 baseline
+— the one place where "the uncertain ones break first" holds.
+
+### Caveats
+
+- The size buckets are labelled `P3`/`P4`/`P5` in the CSVs but are assigned by
+  **object size** (COCO's 32px / 96px thresholds), not by which detection head
+  emitted the box. "Corrupted boxes are medium-sized" is supported; "the P4 head
+  produces the phantoms" is not. Real provenance needs NMS to return surviving
+  anchor indices, which it does not.
+- All 162,652 events come from corrupting the same **50 golden objects**, so
+  class-level counts mostly reflect that 20 of the 50 are people. Scale and
+  confidence distributions are sounder, since each is compared against its own
+  golden baseline.
+- 8 layers, chosen to span the structural axes. Not a layer ranking.
+
 ## Additional Observations
 
 

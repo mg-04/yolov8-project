@@ -128,3 +128,89 @@ def outcome(gold, corr, n_nan, n_inf):
 
 VERDICTS = ("masked", "benign", "SDC", "DUE")
 CATEGORIES = ("masked", "benign", "object_lost", "phantom", "class_flip")
+
+
+# ---------------------------------------------------------------------------
+# Detailed comparison, used by the geometry / event sweeps.
+#
+# compare() above returns counts only, which is all the original campaigns
+# needed. These add the per-match geometry and per-event identity that the
+# benign-shift and SDC-characterisation studies require. Kept separate so the
+# existing campaign CSVs stay reproducible.
+# ---------------------------------------------------------------------------
+
+def box_geom(a, b):
+    """Geometry of one matched pair -> (iou, centre shift / diagonal, area ratio)."""
+    v = iou(a, b)
+    acx, acy = (a[0] + a[2]) / 2, (a[1] + a[3]) / 2
+    bcx, bcy = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+    diag = ((a[2] - a[0]) ** 2 + (a[3] - a[1]) ** 2) ** 0.5 or 1.0
+    shift = ((acx - bcx) ** 2 + (acy - bcy) ** 2) ** 0.5 / diag
+    area_a = (a[2] - a[0]) * (a[3] - a[1]) or 1.0
+    area_b = (b[2] - b[0]) * (b[3] - b[1])
+    return v, shift, area_b / area_a
+
+
+def scale_of(box, imgsz=640):
+    """Which pyramid level would own an object this size: P3 small, P4 medium, P5 large.
+
+    COCO's own small/medium/large split is 32^2 and 96^2 pixels, which maps onto
+    the three detection strides closely enough to reuse.
+    """
+    area = max((box[2] - box[0]) * (box[3] - box[1]), 0.0)
+    side = area ** 0.5
+    return "P3" if side < 32 else ("P4" if side < 96 else "P5")
+
+
+def compare_detailed(gold, corr):
+    """Greedy IoU match, returning geometry per match and identity per event.
+
+    Returns a dict:
+      category                  as compare()
+      lost / phantom / flips    lists of per-event dicts, not just counts
+      matches                   [(iou, centre_shift, area_ratio, class_kept), ...]
+      min_iou / mean_iou        over matched pairs, None when nothing matched
+      mean_shift                mean centre shift, in units of the golden box diagonal
+    """
+    used, matches, flips, lost = set(), [], [], []
+    for g in gold:
+        best, bj = 0.0, None
+        for j, c in enumerate(corr):
+            if j in used:
+                continue
+            v = iou(g[2], c[2])
+            if v > best:
+                best, bj = v, j
+        if bj is not None and best >= MATCH_IOU:
+            used.add(bj)
+            c = corr[bj]
+            matches.append(box_geom(g[2], c[2]) + (c[0] == g[0],))
+            if c[0] != g[0]:
+                flips.append(dict(cls=g[0], cls_to=c[0], conf=g[1],
+                                  area=(g[2][2] - g[2][0]) * (g[2][3] - g[2][1]),
+                                  scale=scale_of(g[2]), box=g[2]))
+        else:
+            lost.append(dict(cls=g[0], cls_to=-1, conf=g[1],
+                             area=(g[2][2] - g[2][0]) * (g[2][3] - g[2][1]),
+                             scale=scale_of(g[2]), box=g[2]))
+    phantom = [dict(cls=c[0], cls_to=-1, conf=c[1],
+                    area=(c[2][2] - c[2][0]) * (c[2][3] - c[2][1]),
+                    scale=scale_of(c[2]), box=c[2])
+               for j, c in enumerate(corr) if j not in used]
+
+    ious = [m[0] for m in matches]
+    if not lost and not phantom and not flips:
+        cat = "masked" if (not ious or min(ious) >= UNCHANGED_IOU) else "benign"
+    elif flips:
+        cat = "class_flip"
+    elif lost:
+        cat = "object_lost"
+    else:
+        cat = "phantom"
+    return dict(
+        category=cat, matches=matches, lost=lost, phantom=phantom, flips=flips,
+        n_matched=len(matches),
+        min_iou=min(ious) if ious else None,
+        mean_iou=sum(ious) / len(ious) if ious else None,
+        mean_shift=sum(m[1] for m in matches) / len(matches) if matches else None,
+    )
