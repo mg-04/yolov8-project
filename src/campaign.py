@@ -21,10 +21,9 @@ logging.getLogger("ultralytics").setLevel(logging.ERROR)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEIGHTS = f"{ROOT}/yolov8n.pt"
-DATA = "coco128.yaml"
-IMG_DIR = "/home/mgong2/datasets/coco128/images/train2017"
+DATA = "coco-val2017-sub127.yaml"   # held out; also supplies the verdict images
 RESULTS_DIR = f"{ROOT}/results"
-SDC_IMAGES = 16  # fixed subset used for per-image verdict classification
+SDC_IMAGES = None  # None = every image in DATA; keeps both metrics on one set
 SAMPLES = int(sys.argv[1]) if len(sys.argv) > 1 else 16
 BIT = int(sys.argv[2]) if len(sys.argv) > 2 else 30
 SEED = 0
@@ -55,8 +54,7 @@ def inject(layer, idx, bit):
 
 
 golden_map, golden_map50 = eval_map()
-sdc_imgs = [os.path.join(IMG_DIR, f)
-            for f in sorted(x for x in os.listdir(IMG_DIR) if x.endswith(".jpg"))[:SDC_IMAGES]]
+sdc_imgs = fi_lib.dataset_images(DATA, SDC_IMAGES)
 sdc_gold = {p: detect(p)[0] for p in sdc_imgs}
 
 print(f"golden: mAP50-95={golden_map:.4f}  mAP50={golden_map50:.4f}")
@@ -117,8 +115,13 @@ n = len(rows)
 print(f"elapsed {time.time()-t0:.0f}s | {n} injections")
 print(f"mAP-critical : {sum(r['critical'] for r in rows)}/{n} = "
       f"{100*sum(r['critical'] for r in rows)/n:.1f}%")
-print(f"SDC (silent) : {sum(r['sdc_critical'] for r in rows)}/{n} = "
-      f"{100*sum(r['sdc_critical'] for r in rows)/n:.1f}%")
-print(f"DUE (loud)   : {sum(r['due_critical'] for r in rows)}/{n} = "
-      f"{100*sum(r['due_critical'] for r in rows)/n:.1f}%")
+# Per-image rate is the comparable one. The any-of-N flag rises purely with the
+# number of verdict images, so it is not comparable across configurations.
+img_n = sum(int(r["sdc_images"]) for r in rows)
+img_sdc = sum(int(r["v_sdc"]) for r in rows)
+img_due = sum(int(r["v_due"]) for r in rows)
+print(f"SDC (silent) : {img_sdc:,}/{img_n:,} = {100*img_sdc/img_n:.2f}%  per-image"
+      f"   [any-of-{rows[0]['sdc_images']}: {100*sum(r['sdc_critical'] for r in rows)/n:.1f}%]")
+print(f"DUE (loud)   : {img_due:,}/{img_n:,} = {100*img_due/img_n:.2f}%  per-image"
+      f"   [any-of-{rows[0]['sdc_images']}: {100*sum(r['due_critical'] for r in rows)/n:.1f}%]")
 print(f"wrote {OUT}")

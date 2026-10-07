@@ -39,9 +39,9 @@ from ultralytics import YOLO                                     # noqa: E402
 logging.getLogger("ultralytics").setLevel(logging.ERROR)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-IMG_DIR = "/home/mgong2/datasets/coco128/images/train2017"
+DATA = "coco-val2017-sub1024.yaml"   # held out; also supplies the images (--data overrides)
 OUTDIR = os.path.join(ROOT, "results")
-IMAGES = 16
+IMAGES = None   # None = every image in DATA
 SEED = 0
 # A destroyed model emits ~128 phantom detections per image, and enumerating them
 # all adds nothing (the count is already in the main CSV) while exploding the events
@@ -52,18 +52,48 @@ MAX_PHANTOM_ROWS = 10
 # Chosen to span depth, weight magnitude, branch type and fault locality.
 # Benign events concentrate in large-weight layers, so several are included.
 SUBSET = [
-    "model.0.conv",             # largest weights (43% >= 2), 17.7% benign, global spread
-    "model.2.cv2.conv",         # 14.2% benign, early
-    "model.4.cv2.conv",         # 13.4% benign, P3 skip source
-    "model.5.conv",             # 100% bit-30 SDC, mid-backbone, global spread
-    "model.15.cv2.conv",        # neck, intermediate locality
-    "model.22.cv2.0.0.conv",    # box branch: low SDC, high benign, very local
-    "model.22.cv3.0.2",         # class output: critical under every fault type
-    "model.22.dfl.conv",        # 16 integer weights, bit-29 outlier
+    # 16 layers spanning section, depth, parameter count, SDC rate, benign yield and
+    # blast radius. Proportional to the network's own section split (27/18/9/9/1).
+    # Covers 24.8% of conv parameters; SDC 23-100%, benign 0.0-17.7%, blast 185-8400.
+    "model.0.conv",             # top benign 17.7%, largest weights (43% >= 2)
+    "model.2.cv2.conv",         # 2nd benign 14.2%
+    "model.4.cv2.conv",         # 3rd benign 13.4%, P3 skip source
+    "model.5.conv",             # SDC extreme: 100% SDC, 0.1% benign
+    "model.6.m.1.cv1.conv",     # mid-backbone bottleneck
+    "model.7.conv",             # LARGEST layer, 294,912 params
+    "model.9.cv2.conv",         # SPPF, structurally distinct
+    "model.12.cv1.conv",        # neck, top-down path
+    "model.15.cv2.conv",        # neck, feeds Detect P3
+    "model.18.cv1.conv",        # neck, bottom-up; blast 2,000 (P4+P5 only)
+    "model.21.cv2.conv",        # neck, feeds Detect P5; blast 400 (P5 only)
+    "model.22.cv2.0.0.conv",    # box branch P3, lowest SDC 23%
+    "model.22.cv2.2.2",         # box OUTPUT conv, P5; blast 397
+    "model.22.cv3.0.2",         # class output P3, 100% under every fault type
+    "model.22.cv3.2.2",         # class output P5; blast 185, the most local
+    "model.22.dfl.conv",        # 16 params, geometry outlier, bit-29 peak
 ]
 
-args = [a for a in sys.argv[1:] if not a.startswith("--")]
+# strip flags AND their values, so a flag argument is never read as a bit number
+_VALUED = {"--data", "--slice"}
+args, _skip = [], False
+for _a in sys.argv[1:]:
+    if _skip:
+        _skip = False
+        continue
+    if _a.startswith("--"):
+        _skip = _a in _VALUED
+        continue
+    args.append(_a)
 ALL_LAYERS = "--all-layers" in sys.argv
+# --slice i/N takes every Nth layer starting at i, so one bit can be split across
+# processes. Bit 30 is the only axis-less case: it cannot be parallelised by bit.
+SLICE = None
+if "--data" in sys.argv:
+    DATA = sys.argv[sys.argv.index("--data") + 1]
+for a in sys.argv:
+    if a.startswith("--slice"):
+        i, tot = sys.argv[sys.argv.index(a) + 1].split("/")
+        SLICE = (int(i), int(tot))
 MODE = args[0] if args else "weight"
 SAMPLES = int(args[1]) if len(args) > 1 else 128
 BITS = [int(b) for b in args[2:]] or [30, 29, 22]
@@ -71,7 +101,11 @@ if MODE not in ("weight", "act"):
     sys.exit("mode must be 'weight' or 'act'")
 
 os.makedirs(OUTDIR, exist_ok=True)
-tag = f"{MODE}_n{SAMPLES}" + ("_all" if ALL_LAYERS else "")
+# bits go in the filename so per-bit runs can go in parallel without clobbering
+_dtag = os.path.splitext(os.path.basename(DATA))[0].replace("coco-val2017-", "")
+tag = (f"{MODE}_n{SAMPLES}_b" + "-".join(str(b) for b in BITS) + f"_{_dtag}"
+       + ("_all" if ALL_LAYERS else "")
+       + (f"_s{SLICE[0]}of{SLICE[1]}" if SLICE else ""))
 OUT_MAIN = os.path.join(OUTDIR, f"geom_{tag}.csv")
 OUT_EVENTS = os.path.join(OUTDIR, f"events_{tag}.csv")
 
@@ -86,11 +120,14 @@ if not ALL_LAYERS:
     if missing:
         sys.exit(f"unknown layers in SUBSET: {missing}")
     convs = [(n, by_name[n]) for n in SUBSET]
+if SLICE:
+    i, tot = SLICE
+    convs = convs[i::tot]
 
-imgs = sorted(f for f in os.listdir(IMG_DIR) if f.endswith(".jpg"))[:IMAGES]
-paths = [os.path.join(IMG_DIR, f) for f in imgs]
+paths = fi_lib.dataset_images(DATA, IMAGES)
 GOLD = {p: detect(p)[0] for p in paths}
-print(f"{len(convs)} layers x {SAMPLES} samples x {len(BITS)} bits x {len(paths)} images")
+print(f"{len(convs)} layers x {SAMPLES} samples x {len(BITS)} bits x {len(paths)} images"
+      f"  ({DATA})")
 print(f"golden detections: {sum(len(v) for v in GOLD.values())}\n")
 
 

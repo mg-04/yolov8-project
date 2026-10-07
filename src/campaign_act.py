@@ -27,10 +27,9 @@ logging.getLogger("ultralytics").setLevel(logging.ERROR)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WEIGHTS = f"{ROOT}/yolov8n.pt"
-DATA = "coco128.yaml"
-IMG_DIR = "/home/mgong2/datasets/coco128/images/train2017"
+DATA = "coco-val2017-sub127.yaml"   # held out; also supplies the verdict images
 RESULTS_DIR = f"{ROOT}/results"
-SDC_IMAGES = 16
+SDC_IMAGES = None  # None = every image in DATA
 SEED = 0
 
 MODE = sys.argv[1] if len(sys.argv) > 1 else "persistent"
@@ -91,8 +90,8 @@ def direction(rec):
     return "grew" if abs(a) > abs(b) else "shrank"
 
 
-imgs = sorted(f for f in os.listdir(IMG_DIR) if f.endswith(".jpg"))
-sdc_imgs = [os.path.join(IMG_DIR, f) for f in imgs[:SDC_IMAGES]]
+sdc_imgs = fi_lib.dataset_images(DATA, SDC_IMAGES)
+imgs = sdc_imgs   # transient mode draws one image per injection from the same set
 sdc_gold = {p: detect(p)[0] for p in sdc_imgs}
 
 rng = random.Random(SEED)
@@ -149,7 +148,7 @@ else:  # transient
         agg = {}
         tl = tp = tc = 0
         for _ in range(SAMPLES):
-            img = os.path.join(IMG_DIR, rng.choice(imgs))
+            img = rng.choice(imgs)
             if img not in gold_cache:
                 gold_cache[img] = detect(img)[0]
             chan, fy, fx = rng.randrange(1024), rng.random(), rng.random()
@@ -181,8 +180,13 @@ with open(OUT, "w", newline="") as f:
 
 n = len(rows)
 print(f"\nelapsed {time.time()-t0:.0f}s | {n} injections")
-print(f"SDC (silent) : {sum(r['sdc_critical'] for r in rows)}/{n} = "
-      f"{100*sum(r['sdc_critical'] for r in rows)/n:.1f}%")
-print(f"DUE (loud)   : {sum(r['due_critical'] for r in rows)}/{n} = "
-      f"{100*sum(r['due_critical'] for r in rows)/n:.1f}%")
+# Per-image rate is the comparable one. The any-of-N flag rises purely with the
+# number of verdict images, so it is not comparable across configurations.
+img_n = sum(int(r["sdc_images"]) for r in rows)
+img_sdc = sum(int(r["v_sdc"]) for r in rows)
+img_due = sum(int(r["v_due"]) for r in rows)
+print(f"SDC (silent) : {img_sdc:,}/{img_n:,} = {100*img_sdc/img_n:.2f}%  per-image"
+      f"   [any-of-{rows[0]['sdc_images']}: {100*sum(r['sdc_critical'] for r in rows)/n:.1f}%]")
+print(f"DUE (loud)   : {img_due:,}/{img_n:,} = {100*img_due/img_n:.2f}%  per-image"
+      f"   [any-of-{rows[0]['sdc_images']}: {100*sum(r['due_critical'] for r in rows)/n:.1f}%]")
 print(f"wrote {OUT}")
