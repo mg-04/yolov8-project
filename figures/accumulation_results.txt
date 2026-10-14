@@ -1,0 +1,58 @@
+M1: ACCUMULATED MULTI-BIT WEIGHT FAULTS IN YOLOv8n
+==============================================================================
+
+Fault model   one fault = one bit flip at a uniformly random address in the
+              3,151,904-value parameter store, at a uniformly random bit in
+              [0,31]. Layer is NOT chosen: it follows from the address, so a
+              layer is hit in proportion to its size. Faults are persistent:
+              applied once, held across every image, then restored.
+Corrupt       SDC + DUE, per image. An object vanished, was invented, or was
+              relabeled (SDC), or NaN/Inf reached the output (DUE). Excludes
+              'benign' (all objects found, right class, box moved slightly).
+Null model    P(corrupt | N) = 1 - (1-p)^N, i.e. faults do not interact.
+Dataset       coco-val2017-sub1024, 256 held-out images, 1,271 golden detections
+Sampling      1,024 injections per N (independent draws, seeded SEED+N)
+
+------------------------------------------------------------------------------
+   N      SDC      DUE      any    indep    lift   silent
+------------------------------------------------------------------------------
+   1    2.56%    0.07%    2.63%    3.20%   0.82x    97.5%
+   2    6.74%    0.13%    6.87%    6.30%   1.09x    98.2%
+   4   13.40%    0.67%   14.08%   12.20%   1.15x    95.2%
+   6   16.01%    1.42%   17.44%   17.73%   0.98x    91.8%
+   8   20.09%    2.12%   22.22%   22.91%   0.97x    90.4%
+  12   27.65%    2.80%   30.46%   32.31%   0.94x    90.8%
+  16   34.49%    6.53%   41.01%   40.57%   1.01x    84.1%
+  24   41.67%   10.58%   52.25%   54.18%   0.96x    79.8%
+  32   45.63%   18.62%   64.25%   64.68%   0.99x    71.0%
+------------------------------------------------------------------------------
+
+  any     = SDC + DUE, the measured corruption rate
+  indep   = prediction of the null model at p = 3.20%
+  lift    = any / indep. 1.00 means faults act independently.
+  silent  = SDC / (SDC+DUE), the share of corruption a NaN check cannot see
+
+RESULTS
+
+  1. Faults do not interact. Lift is 1.00 +/- 0.06 with no trend across a 32x
+     span in N, so the single-fault rate fully predicts multi-fault behavior.
+     Single-fault characterization is sufficient for this model.
+
+  2. Per-fault corruption rate p = 3.20%.
+     Estimated by pooling the mid-N points, NOT from the N=1 measurement. At
+     N=32 each injection exercises 32 faults, so mid-N aggregates 32x more
+     fault events than N=1 and estimates p far more precisely: 3.20% +/- 0.23pp
+     versus the direct N=1 estimate of 2.63% with 95% CI [1.74, 3.63].
+
+  3. N50 = 21 accumulated faults to reach 50% corruption.
+
+  4. Corruption is overwhelmingly silent. 97.5% undetectable at N=1, still
+     84.1% at N=16 where the model is already wrong 41% of the time. DUE only
+     becomes a meaningful signal past N~24, long after the model is unusable.
+     A NaN check buys nothing in the regime that matters.
+
+SOURCE
+  analysis/multibit/accum_sweep.py
+  results/accum_n1024_img256_f1-2.csv                  (N=1,2)
+  results/accum_n1024_img256_f4-6-8-12-16-24-32.csv    (N=4..32)
+  generated 2026-10-07

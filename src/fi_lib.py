@@ -15,6 +15,11 @@ re-run the inference) while an SDC is not detectable from the output alone.
 import cv2
 import torch
 from ultralytics.data.augment import LetterBox
+import torchvision  # noqa: F401  -- MUST be imported before non_max_suppression
+# Ultralytics picks its NMS backend with `"torchvision" in sys.modules`. Without
+# this import it silently falls back to TorchNMS.nms, a pure-Python `while` loop
+# that is 350x slower on a corrupted model (1519 ms/image vs 4.3 ms/image), because
+# corruption pushes thousands of candidates past the confidence threshold.
 from ultralytics.utils.nms import non_max_suppression
 
 CONF, IOU_NMS = 0.25, 0.45
@@ -38,9 +43,11 @@ def make_detector(core, device="cuda"):
 
     Returns (detections, n_nan, n_inf) so callers can tell DUE from SDC.
     """
-    # Preprocessing (imread + letterbox + HWC->CHW) costs ~60ms and is identical
-    # for every injection, so cache the ready-to-run GPU tensor per image. At
-    # 4.9MB each, all 128 coco128 images fit in well under 1GB.
+    # Preprocessing (imread + letterbox + HWC->CHW) is identical for every
+    # injection, so cache it. The cache lives in PINNED CPU memory, not on the
+    # GPU: at 4.9MB per image a GPU-side cache caps out near 1,024 images on a
+    # 12GB card, while the host has room for the full 5,000-image val2017 split.
+    # The per-use H2D copy is ~0.5ms against a ~3ms forward pass.
     cache = {}
 
     def detect(path):
@@ -48,10 +55,12 @@ def make_detector(core, device="cuda"):
         if x is None:
             im = _lb(image=cv2.imread(path))
             x = (torch.from_numpy(im[..., ::-1].transpose(2, 0, 1).copy())
-                 .float().div(255).unsqueeze(0).to(device))
+                 .float().div(255).unsqueeze(0))
+            if device != "cpu":
+                x = x.pin_memory()
             cache[path] = x
         with torch.no_grad():
-            out = core(x)
+            out = core(x.to(device, non_blocking=True))
         t = out[0] if isinstance(out, (list, tuple)) else out
         n_nan = int(torch.isnan(t).sum())
         n_inf = int(torch.isinf(t).sum())
@@ -214,3 +223,27 @@ def compare_detailed(gold, corr):
         mean_iou=sum(ious) / len(ious) if ious else None,
         mean_shift=sum(m[1] for m in matches) / len(matches) if matches else None,
     )
+
+
+def dataset_images(data_yaml, limit=None):
+    """Resolve a dataset YAML's val split to a list of image paths.
+
+    Lets the campaigns derive their per-image verdict set from DATA itself, so the
+    mAP metric and the SDC/DUE metric always describe the same pictures. A val
+    split resolves either to a directory (coco128) or to a .txt list of relative
+    paths (coco-val2017), so handle both.
+    """
+    import os
+    from ultralytics.data.utils import check_det_dataset
+    val = check_det_dataset(data_yaml)["val"]
+    if isinstance(val, (list, tuple)):
+        val = val[0]
+    val = str(val)
+    if os.path.isdir(val):
+        paths = sorted(os.path.join(val, f) for f in os.listdir(val)
+                       if f.lower().endswith((".jpg", ".jpeg", ".png")))
+    else:
+        root = os.path.dirname(val)
+        paths = [os.path.normpath(os.path.join(root, ln.strip()))
+                 for ln in open(val) if ln.strip()]
+    return paths[:limit] if limit else paths

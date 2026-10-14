@@ -5,3 +5,6 @@ yolov8-env
 *.csv
 *.log
 __pycache__
+# model checkpoints: 639 MB, auto-downloaded by ultralytics on first use.
+# three exceed GitHub's 100 MB hard limit.
+*.pt
