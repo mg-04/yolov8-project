@@ -22,6 +22,20 @@ import torchvision  # noqa: F401  -- MUST be imported before non_max_suppression
 # corruption pushes thousands of candidates past the confidence threshold.
 from ultralytics.utils.nms import non_max_suppression
 
+# This study is about IEEE-754 FP32 bit flips, so the arithmetic must actually be
+# FP32. On Ampere and later (RTX 4070 is cc 8.9) PyTorch runs convolutions through
+# TF32 by default: same 8-bit exponent, but the mantissa is rounded from 23 bits to
+# 10 before the multiply, silently discarding bits 12-0 of every weight. That makes
+# low mantissa flips unmeasurable -- "this bit does nothing" becomes indistinguishable
+# from "this bit never reached the multiplier". Measured effect: 0.63 px of box drift
+# versus a true-FP32 run, and zero bit-identical detections out of 141.
+#
+# Volta (Jetson AGX Xavier, cc 7.2) has no TF32 units, so it was always true FP32.
+# Disabling here makes the two platforms agree to 0.0002 px, and makes the
+# measurement match the deployment target.
+torch.backends.cudnn.allow_tf32 = False
+torch.backends.cuda.matmul.allow_tf32 = False
+
 CONF, IOU_NMS = 0.25, 0.45
 MATCH_IOU = 0.50      # two boxes are the same object above this
 UNCHANGED_IOU = 0.99  # below this a matched box counts as having drifted
