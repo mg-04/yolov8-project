@@ -26,6 +26,7 @@ Usage:
   ./analysis/multibit/accum_sweep.py 128 256
   ./analysis/multibit/accum_sweep.py 128 256 --faults 1,2,4,8
   ./analysis/multibit/accum_sweep.py 1024 32 --model yolov8x --faults 1
+  ./analysis/multibit/accum_sweep.py 256 64 --faults 1 --bits 29 --kind bias --mag high
 """
 import csv, logging, os, random, sys, time
 
@@ -50,6 +51,7 @@ BITS  = ([int(x) for x in a[a.index("--bits") + 1].split(",")]
          if "--bits" in a else list(range(32)))
 LAYER = a[a.index("--layer") + 1] if "--layer" in a else None
 MAG   = a[a.index("--mag") + 1] if "--mag" in a else None   # "high" | "low"
+KIND  = a[a.index("--kind") + 1] if "--kind" in a else None  # "bias" | "weight"
 DATA = "coco-val2017-sub1024.yaml"
 SEED = 0
 
@@ -59,6 +61,7 @@ tag = f"{MODEL}_n{SAMPLES}_img{IMAGES}_f{'-'.join(str(f) for f in FAULTS)}"
 if len(BITS) < 32: tag += "_b" + "-".join(str(b) for b in BITS)
 if LAYER: tag += "_" + LAYER.replace(".", "")
 if MAG:   tag += "_" + MAG
+if KIND:  tag += "_" + KIND
 OUT = os.path.join(RESULTS, f"accum_{tag}.csv")
 
 model = YOLO(os.path.join(ROOT, f"{MODEL}.pt"))
@@ -81,12 +84,16 @@ print(f"parameter store: {total:,} values across {len(PARAMS)} tensors")
 # --layer and --mag narrow it instead, for stratified tests of the mechanism:
 #   --mag high  the |w| >= 2 population, damageable at nine bit positions
 #   --mag low   the ordinary |w| < 2 population, damageable only at bit 30
+#   --kind bias the fused biases: 0.18% of the store but 69% of the |w| >= 2
+#               population, and they feed no multiply, so a fault there is a
+#               constant offset on one output channel rather than a scaled kernel
 POOL = None
-if LAYER or MAG:
+if LAYER or MAG or KIND:
     idx = []
     base = 0
     for name, flat, end in PARAMS:
-        take = (LAYER is None) or (name.startswith(LAYER))
+        take = ((LAYER is None) or name.startswith(LAYER)) and (
+            KIND is None or name.endswith(".bias") == (KIND == "bias"))
         if take and MAG:
             sel = (flat.abs() >= 2) if MAG == "high" else (flat.abs() < 2)
             idx.append(sel.nonzero(as_tuple=True)[0].cpu() + base)
@@ -99,7 +106,8 @@ if LAYER or MAG:
     where = f" in {LAYER}" if LAYER else ""
     cmp = ">= 2" if MAG == "high" else "< 2"
     what = f" with |w| {cmp}" if MAG else ""
-    print(f"restricted pool: {len(POOL):,} weights{where}{what}")
+    kind = f" ({KIND} only)" if KIND else ""
+    print(f"restricted pool: {len(POOL):,} weights{where}{what}{kind}")
 print(f"bit pool: {BITS if len(BITS) < 32 else 'all 32'}")
 
 
