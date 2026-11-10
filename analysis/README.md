@@ -37,6 +37,7 @@ subset images was SDC, which is sensitive but upward-biased.
 | [geometry/](geometry/) | how far do boxes move, and which objects are lost or invented? |
 | [multibit/](multibit/) | accumulated faults, magnitude-stratified sampling, cross-architecture census |
 | [partition/](partition/) | splitting the model across a trust boundary |
+| [sentry/](sentry/) | range-check defences: WeightSentry reimplemented, measured, and corrected |
 
 ---
 

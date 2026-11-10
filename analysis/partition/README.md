@@ -252,22 +252,27 @@ To enumerate candidates: `[n for n, _ in core.named_modules()]`.
 
 ### Why these two
 
-| layer | params | `\|w\| >= 2` | density |
-|---|---|---|---|
-| `model.0.conv` | 432 w + 16 b | 187 weights | **43.3%** |
-| `model.22.dfl.conv` | 16 | 14 | **87.5%** |
+| layer | params | `\|w\| >= 2` | density | coverage of target set |
+|---|---|---|---|---|
+| `model.0` | 448 | 194 | **43.3%** | 13.10% |
+| `model.22.dfl` | 16 | 14 | **87.5%** | 0.95% |
+| combined | 464 | 208 | **44.8%** | **14.04%** |
+
+Model-wide the target set is 1,481 of 3,151,904 values, i.e. **0.047%** — so these two
+layers are roughly 950× denser in targets than the model average.
 
 These are the only two layers where high-magnitude weights are *dense* rather than
 outliers, and both sit at a network boundary — so the trust crossing coincides with
 I/O that happens anyway, rather than forcing a round trip through the middle of the
-network. Cost is 448 parameters, **1.8 KB, 1.02% of FLOPs**.
+network. Cost is 464 parameters — **1.9 KB, 1.03% of FLOPs**.
 
-**Be careful with the coverage claim.** Against the 453-value weight-only target set
-these two layers cover 201, or 44%. Against the full target set — **1,481 values, of
-which 1,028 (69.4%) are biases** — they cover only **14%**. The harness samples all
-parameters, so 14% is the honest number for random-fault coverage. The 44% figure is
-only valid for a weight-only threat model. See
-[../multibit/README.md](../multibit/README.md) for the bias/weight pool split.
+**Be careful quoting coverage.** Against the **weight-only** target set (453 values)
+these two layers cover 201, or **44%** — and that is the figure the original writeup
+used. Against the full target set they cover **14%**, because 1,028 of the 1,481
+values are *biases*, which hold 69.4% of the population while being 0.18% of the
+store. The harness samples all parameters, so 14% is the honest number for random
+faults; 44% is valid only under a weight-only threat model. See
+[../multibit/README.md](../multibit/README.md) for the pool split.
 
 ## Rung 2: a second machine
 
@@ -399,15 +404,6 @@ Tegra kernel. `eth0` is DOWN with no cable, so the only current path is the USB
 
 ## Known gaps
 
-- **`compare()` passes a class-label flip.** [split_test.py:72](split_test.py#L72)
-  skips a row whose class differs without touching `dbox`/`dconf`, so `ok` stays
-  `True` while `exact < nb` — the printout would read `bit-exact 299/301` next to
-  `PASS`. Tightening the predicate to `ok = nd == 0 and exact == nb` closes it; the
-  counter is already there, it is just not in the condition.
-- **The `TAGS` comment at [split_test.py:34](split_test.py#L34) is wrong.** It reads
-  "`model.0` holds 43.3% of the `|w| >= 2` population", conflating density with
-  coverage. 43.3% is the density *within* the layer; coverage of the full 1,481-value
-  target set is 13.1%.
 - No standalone server script yet — rung 2 needs `shield_server.py` with
   `device="cpu"`.
 - `_DTYPES` covers fp32 / fp16 / int8 only. Quantised deployment would need more.

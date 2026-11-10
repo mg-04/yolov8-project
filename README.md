@@ -364,17 +364,26 @@ a periodic scrub removes 93% of risk. No ECC, no redundancy, no partitioning.
 
 **Adversarial faults (attacker choosing addresses) - partitioning is required.** A
 range check does not help when the attacker picks a bit the check permits. Here the
-relevant set is the 453 high-magnitude weights, and shielding splits into two
-options with different costs:
+relevant set is the high-magnitude population, and shielding splits into options with
+different costs.
 
-| approach | covers | cost |
-|---|---|---|
-| shield `model.0.conv` + `dfl` entire | 201 of 453 (44%) | 448 weights, 1.8 KB, **1.02% of FLOPs**, clean layer split at the network's input and output boundaries |
-| protect all 453 by value | 453 of 453 | 3.6 KB with indices, but scattered across 15 layers - no clean compute split, better served by ECC than by partitioning |
+Which set you are covering matters, because the population is **1,481 values, and
+1,028 of them (69.4%) are biases** - biases are 0.18% of the parameter store but
+~1,200x denser in targets than weights. An analysis restricted to `.weight` sees only
+453 and undercounts by 3.3x:
 
-The layer-level option is the deployable one: both layers sit at the network
-boundaries, so the trust-boundary crossing coincides with I/O that happens anyway,
-rather than forcing a round trip through the middle of the network.
+| approach | covers (of 1,481) | covers (of 453 weights only) | cost |
+|---|---|---|---|
+| shield `model.0` + `dfl` entire | 208 (**14.0%**) | 201 (44%) | 464 params, 1.9 KB, **1.03% of FLOPs**, clean layer split at the network's input and output boundaries |
+| protect all 1,481 by value | 1,481 (100%) | 453 | 11.6 KB with indices, but scattered across 15+ layers - no clean compute split, better served by ECC than by partitioning |
+
+The layer split is the deployable one - both layers sit at the network boundaries, so
+the trust crossing coincides with I/O that happens anyway rather than forcing a round
+trip through the middle of the network - but it covers only a seventh of the
+population under a random-fault model. **Its case rests on density, not coverage:**
+44.8% of those 464 values are targets against 0.047% model-wide, roughly 950x. The
+working implementation and the cost model are in
+[analysis/partition/](analysis/partition/).
 
 ## 7. What does not work
 

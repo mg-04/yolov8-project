@@ -31,9 +31,10 @@ logging.getLogger("ultralytics").setLevel(logging.ERROR)
 IMAGES = int(sys.argv[1]) if len(sys.argv) > 1 else 64
 DATA = "coco-val2017-sub1024.yaml"
 PORT = 9801
-# model.0 holds 43.3% of the |w| >= 2 population in 448 values; dfl is 16
-# values that are 87.5% such. Both sit at a network boundary, so the trust
-# crossing coincides with I/O that happens anyway.
+# Both layers are |w| >= 2 DENSE rather than large: 208 of their 464 values, 44.8%,
+# against 0.047% model-wide. That is density, NOT coverage -- the target set is 1,481
+# values (1,028 of them biases) and these two hold 14.0% of it. Both sit at a network
+# boundary, so the trust crossing coincides with I/O that happens anyway.
 TAGS = ["model.0", "model.22.dfl"]
 
 
@@ -60,7 +61,7 @@ def detect_all(core, paths, warm=True):
 
 def compare(gold, test, label):
     """Exact comparison. Counts rows that match to the last bit."""
-    nd = nb = exact = 0
+    nd = nb = nc = exact = 0
     dbox = dconf = 0.0
     for p, g in gold.items():
         t = test[p]
@@ -70,15 +71,18 @@ def compare(gold, test, label):
         for a, b in zip(g, t):
             nb += 1
             if a[0] != b[0]:
+                nc += 1          # class flip leaves dbox/dconf untouched; count it
                 continue
             dbox = max(dbox, max(abs(x - y) for x, y in zip(a[2], b[2])))
             dconf = max(dconf, abs(a[1] - b[1]))
             if a[1] == b[1] and all(x == y for x, y in zip(a[2], b[2])):
                 exact += 1
-    ok = nd == 0 and dbox == 0.0 and dconf == 0.0
-    print(f"  {label:28s} count-mismatch {nd:3d}   max|box| {dbox:.3e}   "
-          f"max|conf| {dconf:.3e}   bit-exact {exact}/{nb}   "
-          f"{'PASS' if ok else 'FAIL'}")
+    # exact == nb subsumes dbox == dconf == 0 and additionally catches a class flip,
+    # which a dbox/dconf predicate passes because it never reaches them.
+    ok = nd == 0 and exact == nb
+    print(f"  {label:28s} count-mismatch {nd:3d}   class-flip {nc:3d}   "
+          f"max|box| {dbox:.3e}   max|conf| {dconf:.3e}   "
+          f"bit-exact {exact}/{nb}   {'PASS' if ok else 'FAIL'}")
     return ok
 
 
