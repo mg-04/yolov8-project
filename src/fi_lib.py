@@ -96,9 +96,16 @@ def iou(a, b):
 
 
 def compare(gold, corr):
-    """Greedy IoU match of two detection sets -> (category, lost, phantom, class_flip)."""
+    """Greedy IoU match -> (category, lost, phantom, class_flip, min_iou).
+
+    min_iou is the WORST matched-box IoU against golden, or nan when nothing
+    matched. It is the only CONTINUOUS signal produced here -- every other
+    field is a count -- so box drift (a detection that survived but moved) is
+    otherwise visible only as the coarse masked/benign split at UNCHANGED_IOU.
+    Appended rather than inserted so existing callers, which index [0] or [:5],
+    are unaffected."""
     if not gold and not corr:
-        return "masked", 0, 0, 0
+        return "masked", 0, 0, 0, float("nan")
     used, matched, cls_flip = set(), 0, 0
     min_iou = 1.0
     for g in gold:
@@ -125,20 +132,20 @@ def compare(gold, corr):
         cat = "object_lost"
     else:
         cat = "phantom"
-    return cat, lost, phantom, cls_flip
+    return cat, lost, phantom, cls_flip, (min_iou if matched else float("nan"))
 
 
 def outcome(gold, corr, n_nan, n_inf):
     """Full three-way classification.
 
-    Returns (verdict, category, lost, phantom, class_flip, loud) where verdict is
-    one of masked / benign / DUE / SDC.
+    Returns (verdict, category, lost, phantom, class_flip, loud, min_iou) where
+    verdict is one of masked / benign / DUE / SDC.
 
     A 'loud' output (NaN or Inf present) is DUE regardless of what happened to the
     detections: the fault announced itself, so a runtime monitor catches it. Only a
     structurally clean but wrong output is a true SDC.
     """
-    cat, lost, phantom, cf = compare(gold, corr)
+    cat, lost, phantom, cf, min_iou = compare(gold, corr)
     loud = (n_nan > 0) or (n_inf > 0)
     if loud:
         verdict = "DUE"
@@ -146,7 +153,7 @@ def outcome(gold, corr, n_nan, n_inf):
         verdict = cat
     else:
         verdict = "SDC"
-    return verdict, cat, lost, phantom, cf, loud
+    return verdict, cat, lost, phantom, cf, loud, min_iou
 
 
 VERDICTS = ("masked", "benign", "SDC", "DUE")

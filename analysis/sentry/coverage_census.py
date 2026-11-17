@@ -37,6 +37,9 @@ CONFIGS = [
     ("WS signed K=128",      dict(mode="k", K=128, signed=True)),
     ("exp 1-sided per-chan", dict(mode="chan", signed=False, two_sided=False)),
     ("exp 2-sided per-chan", dict(mode="chan", signed=False, two_sided=True)),
+    # signed interval AND magnitude floor: in_range() ANDs the two tests, so a
+    # fault is caught if EITHER rejects it -- the union of both coverages.
+    ("signed + floor per-chan", dict(mode="chan", signed=True, two_sided=True)),
 ]
 
 convs = [(n, m) for n, m in core.named_modules() if isinstance(m, torch.nn.Conv2d)]

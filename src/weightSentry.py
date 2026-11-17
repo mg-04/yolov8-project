@@ -79,24 +79,45 @@ class Bounds:
     """Pre-deployment metadata: one bound per weight unit, per conv layer."""
 
     def __init__(self, core, mode="chan", K=128, signed=True, two_sided=False,
-                 bias_mode="chan"):
+                 bias_mode="chan", bias_signed=None, bias_two_sided=None):
         self.mode, self.K, self.signed, self.two_sided = mode, K, signed, two_sided
         self.bias_mode = bias_mode
+        # Bound TYPE is per STREAM, not global, because the two streams fail
+        # differently and cost differently:
+        #
+        #   weights  99.99% have |w| < 2, so a flip almost always SETS the
+        #            exponent MSB and explodes. A one-sided exponent ceiling
+        #            catches that at 1 B/unit; a signed range costs 8 and buys
+        #            only bits that carry little damage.
+        #   biases   82% have |b| < 2, so 18% of bit-30 flips COLLAPSE instead,
+        #            and a bias sign flip alone costs 24.15% SDC. Worse, under
+        #            "chan" grouping a bias unit holds ONE value, so lo == hi:
+        #            the signed bound degenerates into an exact equality check
+        #            at 4 B, catching everything and repairing exactly.
+        #
+        # The cheap configuration is therefore MIXED, and a single global flag
+        # cannot express it. Biases default to the weight setting, so every
+        # configuration built before this existed is bit-identical.
+        self.bias_signed = signed if bias_signed is None else bias_signed
+        self.bias_two_sided = two_sided if bias_two_sided is None else bias_two_sided
         self.lo, self.hi, self.emax, self.emin = {}, {}, {}, {}
         self.units, self.degenerate = {}, {}
+        self.is_signed, self.is_two_sided = {}, {}
         for name, m in core.named_modules():
             if not isinstance(m, nn.Conv2d):
                 continue
             # bias tables are keyed "<layer>#bias" so one in_range()/correct()
             # pair serves both streams without special-casing either.
-            targets = [(name, m.weight.data, mode)]
+            targets = [(name, m.weight.data, mode, signed, two_sided)]
             if bias_mode and m.bias is not None:
-                targets.append((name + "#bias", m.bias.data, bias_mode))
-            for key, w, md in targets:
+                targets.append((name + "#bias", m.bias.data, bias_mode,
+                                self.bias_signed, self.bias_two_sided))
+            for key, w, md, sg, ts in targets:
+                self.is_signed[key], self.is_two_sided[key] = sg, ts
                 gid, g = _units(w, md, K)
                 flat = w.reshape(-1)
                 e = ((flat.view(torch.int32) >> 23) & 0xFF).to(torch.int32)
-                if signed:
+                if sg:
                     lo = torch.full((g,), float("inf"), device=w.device)
                     hi = torch.full((g,), float("-inf"), device=w.device)
                     lo.scatter_reduce_(0, gid, flat, "amin")
@@ -106,8 +127,18 @@ class Bounds:
                 else:
                     em = torch.zeros(g, dtype=torch.int32, device=w.device)
                     em.scatter_reduce_(0, gid, e, "amax")
+                    # in_range() drops isfinite() and relies on `e <= emax`
+                    # alone to reject the e == 255 of Inf/NaN, which is only
+                    # sound while no unit legitimately reaches 255. Trained
+                    # weights peak at 130 here; a corrupted checkpoint would
+                    # not, so refuse it loudly rather than check 127x/forward.
+                    if int(em.max()) >= 255:
+                        raise ValueError(
+                            f"{key}: unit exponent reaches 255 (Inf/NaN in the "
+                            "reference weights), so a magnitude bound cannot "
+                            "reject Inf/NaN faults. Fix the checkpoint.")
                     self.emax[key] = em[gid].view_as(w)
-                if two_sided:
+                if ts:
                     # the unit's magnitude floor. exact zeros are held out of
                     # the minimum and readmitted in in_range(), because one
                     # zero weight would otherwise drag the floor to 0 and stop
@@ -135,9 +166,12 @@ class Bounds:
         both floor and ceiling. This is the bias case under "chan" grouping.
         """
         deg = self.degenerate[key]
-        if self.signed:
-            return 4 if deg else 8
-        return 1 if (deg or not self.two_sided) else 2
+        if self.is_signed[key]:
+            # A degenerate unit stores its single value once (4 B) and its
+            # magnitude floor is implied by that value, so two_sided is free.
+            # Otherwise the floor is one more exponent byte on top of lo/hi.
+            return 4 if deg else (9 if self.is_two_sided[key] else 8)
+        return 1 if (deg or not self.is_two_sided[key]) else 2
 
     @property
     def bytes(self):
@@ -155,14 +189,36 @@ class Bounds:
         NaN or Inf payload -- every comparison against which is False -- comes
         out as NOT in range. The paper's `if w_min <= w <= w_max` has the same
         effect scalar-wise; the obvious vectorised negation (x < lo) | (x > hi)
-        does not, and would let a NaN through silently."""
-        if self.signed:
+        does not, and would let a NaN through silently.
+
+        The exponent is extracted at most ONCE. Every elementwise op here is a
+        separate CUDA kernel launch, 127 of these calls run per forward, and
+        those launches -- not the memory traffic -- dominate the measured GPU
+        overhead, so a redundant extraction is not free.
+
+        An explicit isfinite() is likewise redundant in the magnitude-only
+        path: Inf and NaN both carry e == 255, and __init__ refuses to build a
+        bound with emax == 255, so `e <= emax` already rejects them.
+
+        KNOWN BLIND SPOT, two weights in yolov8n. The `x == 0` clause readmits
+        exact zeros, because a unit holding a legitimate zero weight would
+        otherwise fail its own floor. A unit holding BOTH 0.0 and 2.0 then
+        cannot tell a real zero from a 2.0 whose exponent MSB was cleared:
+        model.22.dfl.conv holds the integers 0..15, so at bit 30 both
+        0.0 -> 2.0 and 2.0 -> 0.0 go undetected. That is inherent to a
+        magnitude-only bound rather than a defect here -- no [emin, emax] test
+        can separate those two values -- and it is why the coverage census
+        prints 100.00% at bit 30 instead of 99.999937%.
+        """
+        e = None
+        if self.is_signed[name]:
             r = (x >= self.lo[name]) & (x <= self.hi[name])
         else:
-            e = ((x.view(torch.int32) >> 23) & 0xFF).to(torch.int32)
-            r = (e <= self.emax[name]) & torch.isfinite(x)
-        if self.two_sided:
-            e = ((x.view(torch.int32) >> 23) & 0xFF).to(torch.int32)
+            e = (x.view(torch.int32) >> 23) & 0xFF
+            r = e <= self.emax[name]
+        if self.is_two_sided[name]:
+            if e is None:
+                e = (x.view(torch.int32) >> 23) & 0xFF
             r = r & ((e >= self.emin[name]) | (x == 0))
         return r
 
@@ -193,7 +249,7 @@ def correct(w, bounds, name):
 
     rem = bad & ~done                         # nothing worked: clamp
     if bool(rem.any()):
-        if bounds.signed:
+        if bounds.is_signed[name]:
             cl = torch.clamp(w, bounds.lo[name], bounds.hi[name])
         else:
             # magnitude-only: rebuild at the unit's ceiling, keeping the sign
