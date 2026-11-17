@@ -1,6 +1,16 @@
-# Verilator output and synthesis scratch
-sim/build/
-abc.history
+*.log*
+*.cmd*
+
+verif/rtl
+verif/syn
+verif/par
+
+syn/WORK
+par/FLOW
+par/src/WORK
+pwr/WORK
+
 *.o
 *.d
 *.a
+abc.history

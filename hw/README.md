@@ -4,27 +4,44 @@ The comparator from `src/weightSentry.py`, in Verilog, validated against that
 Python and synthesised. This is the step that turns "an 8-bit compare is
 cheaper than two fp32 compares" from an assertion into a measurement.
 
+Stage layout follows `ece725/digital/gcd` — one directory per flow stage,
+each with `src/` for inputs and a gitignored run directory for tool output.
+
 ```
-rtl/      sentry_check.v       the check: combinational, parameterised by
-                               format / bound / repair
-sim/      tb_sentry_check.cpp  Verilator harness, compares `flag` against Python
-          gen_vectors.py       vectors from `weightSentry.Bounds` itself
-          vectors/*.vec        1,920 per mode: real yolov8n weights, real bounds
-          build/               Verilator's generated C++; gitignored
-syn/      synth.py             all 16 variants, tabulated
-          synth_results.json
-pd/                            physical design; empty until P&R starts
-Makefile                       `make test`, `make vectors`, `make synth`
+rtl/      sentry_check.v        the check: combinational, parameterised by
+                                format / bound / repair
+verif/    src/gen_vectors.py    vectors from `weightSentry.Bounds` itself
+          src/tb_sentry_check.cpp   Verilator harness, compares `flag`
+          data/*.vec            1,920 per mode: real weights, real bounds
+          rtl/                  Verilator run dir, gitignored
+          syn/ par/             gate-level and post-PnR runs, when a simulator
+                                is available
+syn/      src/synth.py          all 16 variants, tabulated
+          synth_results.json    tracked: these numbers are cited
+          WORK/                 gitignored
+par/      src/                  place and route; empty until the flow starts
+pwr/      src/                  power analysis; empty
+Makefile                        `make test`, `make vectors`, `make synth`
 ```
 
-Planned additions to `rtl/` for the tapeout: `secded.v`, `bound_table.v`,
-`mac_array.v`, `lfsr.v`, `ctrl.v`, `top.v`.
+Planned additions to `rtl/`: `secded.v`, `bound_table.v`, `mac_array.v`,
+`lfsr.v`, `ctrl.v`, `top.v`.
 
-`sentry_check.v` is the only design file. Everything under `sim/build/` is
+Two deliberate departures from gcd. Its `verif/data` is gitignored because the
+golden data regenerates from the tool; these vectors need the trained
+checkpoint, so tracking them is what lets someone re-verify the equivalence
+claim without the model. And `syn/synth_results.json` sits outside `syn/WORK`
+because the area numbers are cited rather than scratch.
+
+`sentry_check.v` is the only design file. Everything under `verif/rtl/` is
 Verilator's translation of it into C++ and then a binary — generated, not
-written, and rebuilt by `make test` in a few seconds. `tb_sentry_check.cpp` is
-the only hand-written C++ in the repo. There is no HLS anywhere in this
-project: Verilator compiles RTL *to* C++, the opposite direction from HLS.
+written, and rebuilt by `make test` in seconds. `tb_sentry_check.cpp` is the
+only hand-written C++ here. There is no HLS in this project: Verilator
+compiles RTL *to* C++, the opposite direction from HLS.
+
+Still missing for a real flow: no `.sdc` in `syn/src` (Yosys does no STA, so
+there are no constraints to write yet) and no `.args` file lists, which
+Xcelium would need in `verif/src` the way gcd has `rtl.args`.
 
 ## Run
 

@@ -1,14 +1,20 @@
 # Equivalence check: the Verilog comparator against the Python that produced
-# every number in this project. One command per bound mode, or `make test`
-# for all four.
+# every number in this project. `make test` runs all four bound modes.
+#
+# Stage layout follows ece725/digital/gcd: rtl/ verif/ syn/ par/ pwr/, each
+# stage with src/ for inputs and a gitignored run directory for tool output.
+# verif/rtl is the RTL-netlist run dir; verif/syn and verif/par are where the
+# same vectors run against the synthesised and placed netlists once a
+# gate-level simulator is available.
 #
 # Verilator 4.028 has no --build, so the generated makefile is invoked
 # directly, and --exe needs an absolute path to the harness.
 
 VERILATOR ?= verilator
 RTL       := rtl/sentry_check.v
-TB        := sim/tb_sentry_check.cpp
-BUILD     := sim/build
+TB        := verif/src/tb_sentry_check.cpp
+DATA      := verif/data
+BUILD     := verif/rtl
 
 MODES     := exp1 exp2 sgn sgnf
 MODE_exp1 := 0
@@ -28,7 +34,7 @@ test: $(addprefix run-,$(MODES))
 
 run-%: $(BUILD)/%/sim
 	@printf '%-6s ' $*
-	@./$< sim/vectors/$*.vec
+	@./$< $(DATA)/$*.vec
 
 $(BUILD)/%/sim: $(RTL) $(TB)
 	@mkdir -p $(BUILD)/$*
@@ -38,10 +44,10 @@ $(BUILD)/%/sim: $(RTL) $(TB)
 	@$(MAKE) -s -C $(BUILD)/$* -f Vsentry_check.mk sim
 
 vectors:
-	./sim/gen_vectors.py
+	./verif/src/gen_vectors.py
 
 synth:
-	./syn/synth.py --json syn/synth_results.json
+	./syn/src/synth.py --json syn/synth_results.json
 
 clean:
-	rm -rf $(BUILD)
+	rm -rf $(BUILD) verif/syn verif/par syn/WORK/* par/src/WORK pwr/WORK

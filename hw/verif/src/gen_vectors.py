@@ -23,14 +23,14 @@ import sys
 
 import torch
 
-HERE = os.path.dirname(os.path.abspath(__file__))        # hw/sim
-HW   = os.path.dirname(HERE)                             # hw
+HERE = os.path.dirname(os.path.abspath(__file__))        # hw/verif/src
+HW   = os.path.dirname(os.path.dirname(HERE))            # hw
 ROOT = os.path.dirname(HW)                               # project root
 sys.path.insert(0, os.path.join(ROOT, "src"))
 from ultralytics import YOLO                                    # noqa: E402
 import weightSentry as WS                                       # noqa: E402
 
-OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "vectors")
+OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HW, "verif", "data")
 MODES = [("exp1", 0, dict(signed=False, two_sided=False)),
          ("exp2", 1, dict(signed=False, two_sided=True)),
          ("sgn",  2, dict(signed=True,  two_sided=False)),

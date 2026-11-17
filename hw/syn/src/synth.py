@@ -22,8 +22,8 @@ import re
 import subprocess
 import sys
 
-RTL = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                   "rtl", "sentry_check.v")
+HW = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+RTL = os.path.join(HW, "rtl", "sentry_check.v")
 FORMATS = [("fp32", 8, 23), ("fp16", 5, 10)]
 MODES = [(0, "exp 1-sided", "1 B/unit"), (1, "exp 2-sided", "2 B/unit"),
          (2, "signed", "8 B/unit"), (3, "signed + floor", "9 B/unit")]
