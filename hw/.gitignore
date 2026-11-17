@@ -1,0 +1,6 @@
+# Verilator output and synthesis scratch
+sim/build/
+abc.history
+*.o
+*.d
+*.a
