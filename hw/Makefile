@@ -11,10 +11,14 @@
 # directly, and --exe needs an absolute path to the harness.
 
 VERILATOR ?= verilator
+IVERILOG  ?= iverilog
+VVP       ?= vvp
 RTL       := rtl/sentry_check.v
 TB        := verif/src/tb_sentry_check.cpp
 DATA      := verif/data
 BUILD     := verif/rtl
+READ_RTL  := $(RTL) rtl/secded.v rtl/bound_table.v rtl/fault_inject.v rtl/weight_read_check.v
+READ_TB   := verif/src/tb_weight_read_check.sv
 
 MODES     := exp1 exp2 sgn sgnf
 MODE_exp1 := 0
@@ -27,10 +31,17 @@ EXP_W  ?= 8
 MANT_W ?= 23
 REPAIR ?= 0
 
-.PHONY: test vectors synth clean
+.PHONY: test test-read vectors synth clean
 .PRECIOUS: $(BUILD)/%/sim
 
 test: $(addprefix run-,$(MODES))
+
+test-read: $(BUILD)/weight_read_check.vvp
+	$(VVP) $<
+
+$(BUILD)/weight_read_check.vvp: $(READ_RTL) $(READ_TB)
+	@mkdir -p $(BUILD)
+	$(IVERILOG) -g2012 -s tb_weight_read_check -o $@ $(READ_RTL) $(READ_TB)
 
 run-%: $(BUILD)/%/sim
 	@printf '%-6s ' $*

@@ -1,4 +1,4 @@
-# Hardware: the weight bound check
+# Hardware weight read path
 
 The comparator from `src/weightSentry.py`, in Verilog, validated against that
 Python and synthesised. This is the step that turns "an 8-bit compare is
@@ -10,10 +10,15 @@ each with `src/` for inputs and a gitignored run directory for tool output.
 ```
 rtl/      sentry_check.v        the check: combinational, parameterised by
                                 format / bound / repair
+          secded.v              FP16 encoder and SECDED reference decoder
+          bound_table.v         triplicated exponent bounds with majority voting
+          fault_inject.v        enabled XOR on the SRAM read word
+          weight_read_check.v   connects both checkers to a shared SRAM read
 verif/    src/gen_vectors.py    vectors from `weightSentry.Bounds` itself
           src/tb_sentry_check.cpp   Verilator harness, compares `flag`
+          src/tb_weight_read_check.sv   integrated FP16 read-path simulation
           data/*.vec            1,920 per mode: real weights, real bounds
-          rtl/                  Verilator run dir, gitignored
+          rtl/                  simulator build directory, gitignored
           syn/ par/             gate-level and post-PnR runs, when a simulator
                                 is available
 syn/      src/synth.py          all 16 variants, tabulated
@@ -21,23 +26,17 @@ syn/      src/synth.py          all 16 variants, tabulated
           WORK/                 gitignored
 par/      src/                  place and route; empty until the flow starts
 pwr/      src/                  power analysis; empty
-Makefile                        `make test`, `make vectors`, `make synth`
+Makefile                        `make test`, `make test-read`, `make vectors`, `make synth`
 ```
 
-Planned additions to `rtl/`: `secded.v`, `bound_table.v`, `mac_array.v`,
-`lfsr.v`, `ctrl.v`, `top.v`.
+The chip-level integration still needs the SRAM macro, the configuration and
+scan interface, the MAC array, the activation LFSR, and the event counters.
 
 Two deliberate departures from gcd. Its `verif/data` is gitignored because the
 golden data regenerates from the tool; these vectors need the trained
 checkpoint, so tracking them is what lets someone re-verify the equivalence
 claim without the model. And `syn/synth_results.json` sits outside `syn/WORK`
 because the area numbers are cited rather than scratch.
-
-`sentry_check.v` is the only design file. Everything under `verif/rtl/` is
-Verilator's translation of it into C++ and then a binary — generated, not
-written, and rebuilt by `make test` in seconds. `tb_sentry_check.cpp` is the
-only hand-written C++ here. There is no HLS in this project: Verilator
-compiles RTL *to* C++, the opposite direction from HLS.
 
 Still missing for a real flow: no `.sdc` in `syn/src` (Yosys does no STA, so
 there are no constraints to write yet) and no `.args` file lists, which
@@ -47,6 +46,7 @@ Xcelium would need in `verif/src` the way gcd has `rtl.args`.
 
 ```sh
 make test            # all four bound modes against the checked-in vectors
+make test-read       # FP16 read path, single/double ECC faults, and bound voting
 make vectors         # regenerate them from the Python (needs the checkpoint)
 make synth           # 16 variants -> syn/synth_results.json
 make clean
@@ -58,7 +58,31 @@ One mode by hand, if needed:
 make run-exp1
 ```
 
-Needs Verilator and Yosys only. No Vivado, no board, no license.
+`make test` uses Verilator. `make test-read` uses Icarus Verilog (`iverilog`
+and `vvp`). `make synth` uses Yosys.
+
+## FP16 SRAM interface
+
+Use `secded_encode` to generate the write word for the SRAM. The 22-bit word
+packs FP16 data in `[15:0]`, five Hamming bits in `[20:16]`, and even overall
+parity in `[21]`. On read, present the SRAM word and its weight address together
+with `read_valid`. The enabled XOR mask applies to all 22 bits, and both the
+SECDED decoder and `sentry_check` receive that same faulted read.
+
+`golden_weight` is the SECDED reference for clean and single-error reads.
+`ecc_error_mask` identifies the corrected bit in the packed word, including
+parity bits. A detected double error clears `golden_valid`. Use `weight_valid`
+and `golden_valid` together when interpreting the bitwise comparison
+`weight_matches_golden`. `bypass_sentry` sends raw FP16 data to `weight_out`
+while the checker continues reporting `sentry_flag` on configured reads.
+
+Pulse `rst` before loading the table. Write clean, finite FP16 exponent bounds
+on a rising edge with `bound_wr_en` asserted. The default address groups 128
+consecutive weights per entry, with 72 entries for 9,216 weights. Reads and the
+vote across the three register banks are combinational. An unprogrammed or
+out-of-range entry clears `bound_valid` and blocks a defended read.
+`TWO_SIDED=0` stores a 5-bit ceiling per copy, and `TWO_SIDED=1` stores a 5-bit
+floor and ceiling. Each copy also stores a valid bit per entry.
 
 ## Parameters
 
