@@ -1,3 +1,7 @@
+// bound table with exp bounds only, compiled into flops
+// currently statically compiled
+// TODO: make it dynamically configurable (cost may be insane in TMR tho)
+
 // Configuration writes at the clock edge. Reads and majority voting are
 // combinational. Only the ceiling is stored when TWO_SIDED is zero.
 module bound_table #(

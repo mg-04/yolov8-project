@@ -11,8 +11,10 @@
 # directly, and --exe needs an absolute path to the harness.
 
 VERILATOR ?= verilator
-IVERILOG  ?= iverilog
-VVP       ?= vvp
+# Not on PATH by default. The SV testbench needs VCS, not Verilator: hierarchical
+# force/release, #delays and 4-state compares.
+VCS_HOME  ?= /afs/ece.cmu.edu/support/synopsys/synopsys.release/T-Foundation/vcs/T-2022.06
+VCS       ?= $(VCS_HOME)/bin/vcs
 RTL       := rtl/sentry_check.v
 TB        := verif/src/tb_sentry_check.cpp
 DATA      := verif/data
@@ -36,12 +38,13 @@ REPAIR ?= 0
 
 test: $(addprefix run-,$(MODES))
 
-test-read: $(BUILD)/weight_read_check.vvp
-	$(VVP) $<
+test-read: $(BUILD)/read/simv
+	@cd $(BUILD)/read && ./simv -q
 
-$(BUILD)/weight_read_check.vvp: $(READ_RTL) $(READ_TB)
-	@mkdir -p $(BUILD)
-	$(IVERILOG) -g2012 -s tb_weight_read_check -o $@ $(READ_RTL) $(READ_TB)
+$(BUILD)/read/simv: $(READ_RTL) $(READ_TB)
+	@mkdir -p $(BUILD)/read
+	@cd $(BUILD)/read && $(VCS) -sverilog -full64 -q -top tb_weight_read_check \
+	  -o simv $(addprefix $(abspath .)/,$(READ_RTL) $(READ_TB))
 
 run-%: $(BUILD)/%/sim
 	@printf '%-6s ' $*

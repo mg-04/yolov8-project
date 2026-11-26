@@ -5,7 +5,9 @@ module weight_read_check #(
     parameter GROUP_SHIFT = 7,
     parameter TWO_SIDED = 0,
     parameter REPAIR = 0,
-    parameter BOUND_ADDR_W = NUM_BOUNDS > 1 ? $clog2(NUM_BOUNDS) : 1
+    parameter BOUND_ADDR_W = NUM_BOUNDS > 1 ? $clog2(NUM_BOUNDS) : 1,
+    parameter ADDR_W = BOUND_ADDR_W + GROUP_SHIFT,
+    parameter ACT_BASE = (1 << ADDR_W)
 )(
     input  wire                               clk,
     input  wire                               rst,
@@ -17,11 +19,14 @@ module weight_read_check #(
     input  wire [BOUND_ADDR_W+GROUP_SHIFT-1:0] weight_addr,
     input  wire [21:0]                        sram_word,
     input  wire                               inject_enable,
+    input  wire [ADDR_W-1:0]                  inject_addr,
+    input  wire                               inject_act_region,
     input  wire [21:0]                        inject_mask,
     input  wire                               bypass_sentry,
     output wire [15:0]                        weight_out,
     output wire                               weight_valid,
     output wire                               sentry_flag,
+    output wire                               inject_hit,
     output wire                               bound_valid,
     output wire                               bound_disagreement,
     output wire [15:0]                        golden_weight,
@@ -33,6 +38,7 @@ module weight_read_check #(
     output wire [21:0]                        ecc_error_mask
 );
     wire [21:0] read_word;
+    wire injected;
     wire [4:0] emin, emax;
     wire bounds_ready, disagreement;
     wire [15:0] sentry_weight;
@@ -41,9 +47,10 @@ module weight_read_check #(
     wire [4:0] syndrome;
     wire [21:0] error_mask;
 
-    fault_inject inject (
-        .word_in(sram_word), .flip_mask(inject_mask),
-        .enable(read_valid && inject_enable), .word_out(read_word)
+    fault_inject #(.WIDTH(22), .ADDR_W(ADDR_W), .ACT_BASE(ACT_BASE)) inject (
+        .word_in(sram_word), .rd_addr(weight_addr), .inject_addr(inject_addr),
+        .inject_act_region(inject_act_region), .flip_mask(inject_mask),
+        .enable(read_valid && inject_enable), .word_out(read_word), .hit(injected)
     );
     secded_decode ecc (
         .word_in(read_word), .data_out(golden_weight), .syndrome(syndrome),
@@ -69,6 +76,7 @@ module weight_read_check #(
     assign bound_disagreement = read_valid && disagreement;
     assign golden_valid = read_valid && !uncorrectable;
     assign weight_matches_golden = weight_valid && golden_valid && (weight_out == golden_weight);
+    assign inject_hit = injected;
     assign ecc_corrected = read_valid && corrected;
     assign ecc_uncorrectable = read_valid && uncorrectable;
     assign ecc_syndrome = read_valid ? syndrome : 5'b0;

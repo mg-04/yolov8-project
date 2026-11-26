@@ -11,6 +11,8 @@ module tb_weight_read_check;
     reg [8:0] weight_addr = 0;
     reg inject_enable = 0;
     reg [21:0] inject_mask = 0;
+    reg [8:0]  inject_addr = 0;
+    reg        inject_act_region = 0;
     reg bypass_sentry = 0;
     reg [15:0] payload = 16'h3d55;
     wire [21:0] sram_word;
@@ -19,6 +21,7 @@ module tb_weight_read_check;
     wire weight_valid, sentry_flag, bound_valid, golden_valid;
     wire ecc_corrected, ecc_uncorrectable, search_flag, search_valid;
     wire weight_matches_golden, search_matches_golden;
+    wire inject_hit, search_inject_hit;
     wire search_disagreement;
     wire [4:0] ecc_syndrome;
     wire [21:0] ecc_error_mask;
@@ -28,8 +31,11 @@ module tb_weight_read_check;
         .clk(clk), .rst(rst), .bound_wr_en(bound_wr_en), .bound_wr_addr(bound_wr_addr),
         .bound_wr_emin(bound_wr_emin), .bound_wr_emax(bound_wr_emax),
         .read_valid(read_valid), .weight_addr(weight_addr), .sram_word(sram_word),
-        .inject_enable(inject_enable), .inject_mask(inject_mask), .bypass_sentry(bypass_sentry),
+        .inject_enable(inject_enable), .inject_addr(inject_addr),
+        .inject_act_region(inject_act_region),
+        .inject_mask(inject_mask), .bypass_sentry(bypass_sentry),
         .weight_out(weight_out), .weight_valid(weight_valid), .sentry_flag(sentry_flag),
+        .inject_hit(inject_hit),
         .bound_valid(bound_valid), .bound_disagreement(),
         .golden_weight(golden_weight), .golden_valid(golden_valid),
         .weight_matches_golden(weight_matches_golden),
@@ -40,8 +46,11 @@ module tb_weight_read_check;
         .clk(clk), .rst(rst), .bound_wr_en(bound_wr_en), .bound_wr_addr(bound_wr_addr),
         .bound_wr_emin(bound_wr_emin), .bound_wr_emax(bound_wr_emax),
         .read_valid(read_valid), .weight_addr(weight_addr), .sram_word(sram_word),
-        .inject_enable(inject_enable), .inject_mask(inject_mask), .bypass_sentry(1'b0),
+        .inject_enable(inject_enable), .inject_addr(inject_addr),
+        .inject_act_region(inject_act_region),
+        .inject_mask(inject_mask), .bypass_sentry(1'b0),
         .weight_out(search_weight), .weight_valid(search_valid), .sentry_flag(search_flag),
+        .inject_hit(search_inject_hit),
         .bound_valid(), .bound_disagreement(search_disagreement),
         .golden_weight(), .golden_valid(), .weight_matches_golden(search_matches_golden),
         .ecc_corrected(), .ecc_uncorrectable(),
@@ -159,6 +168,40 @@ module tb_weight_read_check;
         if (search_flag || search_weight !== payload)
             $fatal(1, "negative zero must pass the exponent floor");
 
+        // The armed site is a single address, not "every read while enabled".
+        payload = 16'h3d55;
+        inject_enable = 1;
+        inject_mask = 22'h004000;
+        inject_addr = 0;
+        weight_addr = 0;
+        #1;
+        if (!inject_hit || !sentry_flag || weight_matches_golden)
+            $fatal(1, "the armed address must be injected");
+        weight_addr = 1;
+        #1;
+        if (inject_hit || sentry_flag || !weight_matches_golden || weight_out !== payload)
+            $fatal(1, "a neighbouring address must be left alone");
+        inject_addr = 1;
+        #1;
+        if (!inject_hit || !sentry_flag)
+            $fatal(1, "re-arming must follow the address");
+        inject_addr = 300;
+        weight_addr = 300;
+        inject_act_region = 1;
+        #1;
+        if (inject_hit || sentry_flag)
+            $fatal(1, "an activation-region arm must not fire on a weight read");
+        inject_act_region = 0;
+        #1;
+        if (!inject_hit)
+            $fatal(1, "same site, weight region, must fire");
+        inject_enable = 0;
+        inject_addr = 0;
+        weight_addr = 0;
+        #1;
+        if (inject_hit)
+            $fatal(1, "disabled injection must never fire");
+
         check_ecc(16'h0000, 6'h00);
         check_ecc(16'hffff, 6'h1e);
         check_ecc(16'h3d55, 6'h15);
@@ -171,7 +214,7 @@ module tb_weight_read_check;
         if ({weight_valid, sentry_flag, bound_valid, golden_valid, ecc_corrected,
              ecc_uncorrectable, ecc_syndrome, ecc_error_mask} !== 33'b0)
             $fatal(1, "invalid SRAM reads must not report events");
-        $display("PASS: read path, TMR bound vote, 88 single flips, 924 double flips");
+        $display("PASS: read path, TMR bound vote, address-gated injection, 88 single flips, 924 double flips");
         $finish;
     end
 endmodule
