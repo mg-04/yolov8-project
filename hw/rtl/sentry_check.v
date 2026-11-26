@@ -55,24 +55,26 @@ module sentry_check #(
 
     function in_range;
         input [W-1:0] f;
+        input [EXP_W-1:0] upper_exp, lower_exp;
+        input [W-1:0] lower_value, upper_value;
         reg [EXP_W-1:0] e;
         reg             zer;
         begin
             e   = f[W-2 -: EXP_W];
             zer = (f[W-2:0] == {(W-1){1'b0}});     // +0.0 or -0.0
             if (MODE == 0)
-                in_range = (e <= emax);
+                in_range = (e <= upper_exp);
             else if (MODE == 1)
-                in_range = (e <= emax) && ((e >= emin) || zer);
+                in_range = (e <= upper_exp) && ((e >= lower_exp) || zer);
             else if (MODE == 2)
-                in_range = (mono(f) >= mono(lo)) && (mono(f) <= mono(hi));
+                in_range = (mono(f) >= mono(lower_value)) && (mono(f) <= mono(upper_value));
             else
-                in_range = (mono(f) >= mono(lo)) && (mono(f) <= mono(hi))
-                           && ((e >= emin) || zer);
+                in_range = (mono(f) >= mono(lower_value)) && (mono(f) <= mono(upper_value))
+                           && ((e >= lower_exp) || zer);
         end
     endfunction
 
-    wire ok = in_range(w_in);
+    wire ok = in_range(w_in, emax, emin, lo, hi);
     assign flag = ~ok;
 
     wire [W-1:0] crush  = {w_in[W-1], {EXP_W{1'b0}},  w_in[MANT_W-1:0]};
@@ -88,7 +90,7 @@ module sentry_check #(
         for (k = 0; k < EXP_W; k = k + 1) begin : g_cand
             assign cand[k*W +: W] =
                 w_in ^ ({{(W-1){1'b0}}, 1'b1} << (MANT_W + k));
-            assign hit[k] = in_range(cand[k*W +: W]);
+            assign hit[k] = in_range(cand[k*W +: W], emax, emin, lo, hi);
         end
         // Algorithm 1 searches MSB-first and takes the first hit, so the
         // highest set bit of `hit` wins. Unrolled: a priority encoder, one

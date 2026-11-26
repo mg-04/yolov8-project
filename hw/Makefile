@@ -11,10 +11,16 @@
 # directly, and --exe needs an absolute path to the harness.
 
 VERILATOR ?= verilator
+# Not on PATH by default. The SV testbench needs VCS, not Verilator: hierarchical
+# force/release, #delays and 4-state compares.
+VCS_HOME  ?= /afs/ece.cmu.edu/support/synopsys/synopsys.release/T-Foundation/vcs/T-2022.06
+VCS       ?= $(VCS_HOME)/bin/vcs
 RTL       := rtl/sentry_check.v
 TB        := verif/src/tb_sentry_check.cpp
 DATA      := verif/data
 BUILD     := verif/rtl
+READ_RTL  := $(RTL) rtl/secded.v rtl/bound_table.v rtl/fault_inject.v rtl/weight_read_check.v
+READ_TB   := verif/src/tb_weight_read_check.sv
 
 MODES     := exp1 exp2 sgn sgnf
 MODE_exp1 := 0
@@ -27,10 +33,18 @@ EXP_W  ?= 8
 MANT_W ?= 23
 REPAIR ?= 0
 
-.PHONY: test vectors synth clean
+.PHONY: test test-read vectors synth clean
 .PRECIOUS: $(BUILD)/%/sim
 
 test: $(addprefix run-,$(MODES))
+
+test-read: $(BUILD)/read/simv
+	@cd $(BUILD)/read && ./simv -q
+
+$(BUILD)/read/simv: $(READ_RTL) $(READ_TB)
+	@mkdir -p $(BUILD)/read
+	@cd $(BUILD)/read && $(VCS) -sverilog -full64 -q -top tb_weight_read_check \
+	  -o simv $(addprefix $(abspath .)/,$(READ_RTL) $(READ_TB))
 
 run-%: $(BUILD)/%/sim
 	@printf '%-6s ' $*
