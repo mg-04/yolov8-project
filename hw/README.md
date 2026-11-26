@@ -7,12 +7,16 @@ cheaper than two fp32 compares" from an assertion into a measurement.
 Stage layout follows `ece725/digital/gcd` — one directory per flow stage,
 each with `src/` for inputs and a gitignored run directory for tool output.
 
+Chip-level context and the tapeout plan: **[RadHard Edge ML Inference](https://claude.ai/artifact/MDFHVxUWta1jqd9MKk34Kv)**.
+Environment setup: **[WeightSentry Setup](https://claude.ai/artifact/PaQ535jDTSBX49g3Jr6jzm)** or
+[../GETTING_STARTED.md](../GETTING_STARTED.md).
+
 ```
 rtl/      sentry_check.v        the check: combinational, parameterised by
                                 format / bound / repair
           secded.v              FP16 encoder and SECDED reference decoder
           bound_table.v         triplicated exponent bounds with majority voting
-          fault_inject.v        enabled XOR on the SRAM read word
+          fault_inject.v        address- and region-gated XOR on the read word
           weight_read_check.v   connects both checkers to a shared SRAM read
 verif/    src/gen_vectors.py    vectors from `weightSentry.Bounds` itself
           src/tb_sentry_check.cpp   Verilator harness, compares `flag`
@@ -58,16 +62,19 @@ One mode by hand, if needed:
 make run-exp1
 ```
 
-`make test` uses Verilator. `make test-read` uses Icarus Verilog (`iverilog`
-and `vvp`). `make synth` uses Yosys.
+`make test` uses Verilator. `make test-read` uses VCS, which `source setup.sh`
+puts on PATH — the testbench needs hierarchical `force`/`release`, `#delay`s and
+four-state compares, none of which Verilator 4.028 has. `make synth` uses Yosys.
 
 ## FP16 SRAM interface
 
 Use `secded_encode` to generate the write word for the SRAM. The 22-bit word
 packs FP16 data in `[15:0]`, five Hamming bits in `[20:16]`, and even overall
 parity in `[21]`. On read, present the SRAM word and its weight address together
-with `read_valid`. The enabled XOR mask applies to all 22 bits, and both the
-SECDED decoder and `sentry_check` receive that same faulted read.
+with `read_valid`. The XOR mask applies to all 22 bits, and fires only when the read address equals
+`inject_addr` and the site lies in the armed region, so exactly one word per pass
+is corrupted; `inject_hit` reports that it fired. Both the SECDED decoder and
+`sentry_check` receive that same faulted read.
 
 `golden_weight` is the SECDED reference for clean and single-error reads.
 `ecc_error_mask` identifies the corrected bit in the packed word, including
