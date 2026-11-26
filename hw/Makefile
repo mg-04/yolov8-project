@@ -11,10 +11,12 @@
 # directly, and --exe needs an absolute path to the harness.
 
 VERILATOR ?= verilator
-# Not on PATH by default. The SV testbench needs VCS, not Verilator: hierarchical
-# force/release, #delays and 4-state compares.
-VCS_HOME  ?= /afs/ece.cmu.edu/support/synopsys/synopsys.release/T-Foundation/vcs/T-2022.06
-VCS       ?= $(VCS_HOME)/bin/vcs
+# The SV testbench needs VCS, not Verilator: hierarchical force/release,
+# #delays and 4-state compares. `source setup.sh` puts vcs on PATH via the
+# ece240 script, which picks the release matching the OS; the fallback below is
+# RHEL 8 only.
+VCS ?= $(shell command -v vcs 2>/dev/null || \
+         echo /afs/ece.cmu.edu/support/synopsys/synopsys.release/T-Foundation/vcs/T-2022.06/bin/vcs)
 RTL       := rtl/sentry_check.v
 TB        := verif/src/tb_sentry_check.cpp
 DATA      := verif/data
