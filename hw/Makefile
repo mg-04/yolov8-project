@@ -17,11 +17,12 @@ VERILATOR ?= verilator
 # RHEL 8 only.
 VCS ?= $(shell command -v vcs 2>/dev/null || \
          echo /afs/ece.cmu.edu/support/synopsys/synopsys.release/T-Foundation/vcs/T-2022.06/bin/vcs)
-RTL       := rtl/sentry_check.v
+RTL       := rtl/check/sentry_check.v
 TB        := verif/src/tb_sentry_check.cpp
 DATA      := verif/data
 BUILD     := verif/rtl
-READ_RTL  := $(RTL) rtl/secded.v rtl/bound_table.v rtl/fault_inject.v rtl/weight_read_check.v
+READ_RTL  := $(RTL) rtl/check/secded.v rtl/check/bound_table.v \
+             rtl/readpath/fault_inject.v rtl/readpath/weight_read_check.v
 READ_TB   := verif/src/tb_weight_read_check.sv
 
 MODES     := exp1 exp2 sgn sgnf

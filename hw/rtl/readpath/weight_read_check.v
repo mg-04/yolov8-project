@@ -10,25 +10,41 @@ module weight_read_check #(
 )(
     input  wire                               clk,
     input  wire                               rst,
+
+    // from spi_cfg: bound table load, host driven
     input  wire                               bound_wr_en,
     input  wire [BOUND_ADDR_W-1:0]            bound_wr_addr,
     input  wire [4:0]                         bound_wr_emin,
     input  wire [4:0]                         bound_wr_emax,
-    input  wire                               read_valid,
-    input  wire [ADDR_W-1:0]                  weight_addr,
-    input  wire [BOUND_ADDR_W-1:0]            bound_addr,
-    input  wire [21:0]                        sram_word,
+
+    // from spi_cfg: injection arm, static for a whole pass
     input  wire                               inject_enable,
     input  wire [ADDR_W-1:0]                  inject_addr,
     input  wire                               inject_act_region,
     input  wire [21:0]                        inject_mask,
+
+    // from spi_cfg: which of the three sources drives the MACs
     input  wire [1:0]                         mac_src,
+
+    // from SRAM: the word in flight and the addresses that travel with it
+    input  wire                               read_valid,
+    input  wire [ADDR_W-1:0]                  weight_addr,
+    input  wire [BOUND_ADDR_W-1:0]            bound_addr,
+    input  wire [21:0]                        sram_word,
+
+    // to mac_array
     output wire [15:0]                        weight_out,
     output wire                               weight_valid,
+
+    // to counters: corruption event classification
     output wire                               sentry_flag,
     output wire                               inject_hit,
     output wire                               bound_valid,
+
+    // to top: STATUS
     output wire                               bound_disagreement,
+
+    // to counters: SECDED baseline comparison
     output wire [15:0]                        golden_weight,
     output wire                               golden_valid,
     output wire                               weight_matches_golden,

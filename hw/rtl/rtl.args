@@ -1,9 +1,9 @@
-# Implemented RTL. Order matters only for `include search paths.
-rtl/sentry_check.v
-rtl/secded.v
-rtl/bound_table.v
-rtl/fault_inject.v
-rtl/weight_read_check.v
-rtl/spi_cfg.v
-rtl/ctrl.v
+# Implemented RTL, grouped by component. Compile order is leaf-first.
+rtl/check/sentry_check.v
+rtl/check/secded.v
+rtl/check/bound_table.v
+rtl/readpath/fault_inject.v
+rtl/readpath/weight_read_check.v
+rtl/control/spi_cfg.v
+rtl/control/ctrl.v
 rtl/top.v

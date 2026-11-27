@@ -1,10 +1,8 @@
 // Pass sequencer. One pass reads every weight of the loaded slice exactly once
-// at II=1, then drains the golden comparison. Two passes per injection site:
-// the first establishes the golden tile, the second runs with injection armed.
+// at II=1, then drains. Golden is stored once per campaign, not per site.
 module ctrl #(
     parameter ADDR_W = 12,
-    // Cycles from the last read_en to the last accumulator update: S1, S2, S3,
-    // plus one for the acc register. Raise this if a stage is added.
+    // Last read_en to last accumulator update: S1, S2, S3, acc reg.
     parameter PIPE_DEPTH = 4
 )(
     input  wire        clk,
@@ -49,11 +47,7 @@ module ctrl #(
                         st <= S_DRAIN; dcnt <= 0;
                     end
                 end
-                // `drain` is a single pulse on the cycle the pipeline goes
-                // empty, not a level across the flush: golden must store or
-                // compare one tile once, and a level stores it PIPE_DEPTH
-                // times. It lands one cycle before `done`, so a host that
-                // polls STATUS always sees a captured tile.
+                // One pulse at pipe-empty, not a level: golden captures once.
                 S_DRAIN: begin
                     dcnt <= dcnt + 1'b1;
                     if (dcnt + 1'b1 >= DRAIN_CYCLES) begin

@@ -87,10 +87,34 @@ module tb_top;
         if (dut.bound_disagreement !== 1'b0)
             $fatal(1, "freshly written banks must agree");
 
+        // A memory load must land, and the address must auto-increment so a
+        // full slice costs two frames per word rather than three.
+        spi_frame(1'b1, 7'h0b, 16'h0020, rb);
+        spi_frame(1'b1, 7'h0c, 16'hBEEF, rb);
+        spi_frame(1'b1, 7'h0d, 16'h0015, rb);
+        spi_frame(1'b1, 7'h0c, 16'h1234, rb);
+        spi_frame(1'b1, 7'h0d, 16'h002A, rb);
+        repeat (4) @(posedge clk);
+        if (dut.wmem.mem[12'h020] !== 22'h15BEEF)
+            $fatal(1, "memory load did not land: %h", dut.wmem.mem[12'h020]);
+        if (dut.wmem.mem[12'h021] !== 22'h2A1234)
+            $fatal(1, "memory address did not auto-increment: %h",
+                   dut.wmem.mem[12'h021]);
+
         // STATUS must read back over MISO.
         spi_frame(1'b0, 7'h40, 16'h0000, rb);
         if (rb[1] !== 1'b0 || rb[2] !== 1'b1)
             $fatal(1, "STATUS readback wrong: %h", rb);
+
+        // STATUS bit 0 is `busy`, the LSB of the read phase. Read it during a
+        // long pass so a dropped LSB cannot pass as a zero.
+        spi_frame(1'b1, 7'h08, 16'd512, rb);
+        spi_frame(1'b1, 7'h00, 16'h0001, rb);
+        spi_frame(1'b0, 7'h40, 16'h0000, rb);
+        if (rb[0] !== 1'b1)
+            $fatal(1, "STATUS bit 0 (busy) did not read back: %h", rb);
+        wait (done_pin === 1'b1);
+        spi_frame(1'b1, 7'h00, 16'h0002, rb);
 
         // Start a pass. n_weights = 1 keeps it to a single beat, which is
         // enough to see busy rise and done assert; the stubs will kill the

@@ -50,6 +50,9 @@ module top #(
     wire                    bound_wr_en;
     wire [BOUND_ADDR_W-1:0] bound_wr_addr;
     wire [4:0]              bound_wr_emin, bound_wr_emax;
+    wire                    mem_wr_en;
+    wire [ADDR_W-1:0]       mem_addr;
+    wire [21:0]             mem_wdata;
     wire                    cfg_start, clr_counters;
     wire [31:0]             cnt_rdata;
 
@@ -65,6 +68,7 @@ module top #(
         .n_weights(n_weights), .n_oc(n_oc), .cnt_sel(cnt_sel),
         .bound_wr_en(bound_wr_en), .bound_wr_addr(bound_wr_addr),
         .bound_wr_emin(bound_wr_emin), .bound_wr_emax(bound_wr_emax),
+        .mem_wr_en(mem_wr_en), .mem_addr(mem_addr), .mem_wdata(mem_wdata),
         .start(cfg_start), .clr_counters(clr_counters),
         .status(status), .cnt_rdata(cnt_rdata)
     );
@@ -110,9 +114,12 @@ module top #(
         end
     end
 
+    // Single-ported, so a load must not overlap a pass: the host writes the
+    // memory while idle, exactly as it writes the bound table.
     sram_22b #(.ADDR_W(ADDR_W)) wmem (
-        .clk(clk), .en(read_en | s1_valid), .we(1'b0),
-        .addr(s0_waddr), .wdata(22'b0), .rdata(s1_word)
+        .clk(clk), .en(read_en | s1_valid | mem_wr_en), .we(mem_wr_en),
+        .addr(mem_wr_en ? mem_addr : s0_waddr), .wdata(mem_wdata),
+        .rdata(s1_word)
     );
 
     // ---- S2: inject and check --------------------------------------------

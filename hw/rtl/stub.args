@@ -1,7 +1,9 @@
 # Not yet implemented. Every file removed from this list is a block delivered.
+# They live beside the implemented RTL of the same component, so the folder
+# layout does not churn as blocks land; this list is the only status record.
 # A stub that is clocked out of reset kills the simulation; see stub_guard.vh.
-rtl/stub/addrgen.v
-rtl/stub/mac_array.v
-rtl/stub/actwin.v
-rtl/stub/golden.v
-rtl/stub/counters.v
+rtl/control/addrgen.v
+rtl/control/counters.v
+rtl/mac/actwin.v
+rtl/mac/mac_array.v
+rtl/mac/golden.v

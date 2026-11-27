@@ -1,0 +1,19 @@
+{
+    // Go-to-definition across files needs a language server; the extension
+    // ships with all of them off. Verible is already on PATH at /usr/bin.
+    "verilog.languageServer.veribleVerilogLs.enabled": true,
+    "verilog.languageServer.veribleVerilogLs.path": "verible-verilog-ls",
+
+    // The system ctags is Exuberant 5.8 (2009) and predates SystemVerilog, so
+    // it answers with worse results alongside Verible's.
+    "verilog.ctags.enabled": false,
+
+    "verilog.linting.linter": "verilator",
+    "verilog.linting.verilator.arguments": "-Ihw/rtl --timing",
+    "verilog.formatting.verilogHDL.formatter": "verible-verilog-format",
+
+    "files.associations": {
+        "*.vh": "verilog",
+        "*.args": "plaintext"
+    }
+}

@@ -1,0 +1,19 @@
+# Tells verible-verilog-ls which files form the design, so go-to-definition
+# resolves across files. Regenerate when rtl/*.args changes:
+#   (cd hw && grep -hv '^#' rtl/rtl.args rtl/stub.args model/model.args) | sed 's|^|hw/|' > verible.filelist
+hw/rtl/check/sentry_check.v
+hw/rtl/check/secded.v
+hw/rtl/check/bound_table.v
+hw/rtl/readpath/fault_inject.v
+hw/rtl/readpath/weight_read_check.v
+hw/rtl/control/spi_cfg.v
+hw/rtl/control/ctrl.v
+hw/rtl/top.v
+hw/rtl/control/addrgen.v
+hw/rtl/control/counters.v
+hw/rtl/mac/actwin.v
+hw/rtl/mac/mac_array.v
+hw/rtl/mac/golden.v
+hw/model/sram_22b.v
+hw/verif/src/tb_top.sv
+hw/verif/src/tb_weight_read_check.sv
