@@ -91,6 +91,91 @@ out-of-range entry clears `bound_valid` and blocks a defended read.
 `TWO_SIDED=0` stores a 5-bit ceiling per copy, and `TWO_SIDED=1` stores a 5-bit
 floor and ceiling. Each copy also stores a valid bit per entry.
 
+## Chip top
+
+`rtl/top.v` is real at the boundary and hollow inside: nine signal pads, the
+S0-S3 pipeline registers and the whole control plane are final, while the
+datapath blocks are stubs. Integrate one real block at a time and keep
+`make lint-top` passing — a change that breaks it does not merge.
+
+```sh
+make lint-top    # must always pass
+make test-top    # SPI config, bound write, status readback, sequencer
+make stubs       # what is left to implement
+```
+
+Three file lists drive the flow. `rtl/rtl.args` is implemented RTL,
+`rtl/stub.args` is what remains, and `model/model.args` holds simulation models
+standing in for vendor macros. Every file deleted from `stub.args` is a block
+delivered.
+
+A stub drives `x` and, when clocked out of reset, kills the simulation rather
+than returning a plausible value. `make test-top` passes `+define+STUB_WARN` to
+downgrade that to a warning so the sequencer can be seen to complete; drop the
+define once `stub.args` is empty.
+
+### Pipeline
+
+| stage | does |
+|---|---|
+| S0 | address generate — weight address and bound index |
+| S1 | SRAM read; the bound is registered here |
+| S2 | address-gated inject, then SECDED and the bound check in parallel |
+| S3 | MAC, accumulate, compare against the golden tile |
+
+The injector compares the address of the word *in flight*, so the address is
+pipelined alongside the data. Feeding it the live S0 address would corrupt a
+neighbouring weight and the counters could not tell the difference.
+
+`VDD_chk`/`VSS_chk` are a separate supply domain over `sentry_check` and the
+bound table, so energy per check is measurable. They are pads, not RTL ports.
+
+### SPI register map
+
+24-bit frame, MSB first: one R/W bit, seven address bits, sixteen data bits.
+Reads shift the addressed register out on MISO during the same frame. Sampled
+in the core clock domain, so hold the core in reset while loading; only
+`start`/`done` cross domains.
+
+| addr | reg | fields |
+|---|---|---|
+| 0x00 | CTRL | `[0]` start (pulse), `[1]` clear counters |
+| 0x01 | MODE | `[1:0]` mac_src — 0 sentry, 1 raw, 2 ECC; `[2]` ecc_correct_en |
+| 0x02 | INJ_CTRL | `[0]` inject_enable, `[1]` inject_act_region |
+| 0x03 | INJ_ADDR | `[11:0]` armed site |
+| 0x04 | INJ_MASK_L | `[15:0]` mask bits 15:0 |
+| 0x05 | INJ_MASK_H | `[5:0]` mask bits 21:16 |
+| 0x06 | BND_ADDR | bound table write address |
+| 0x07 | BND_DATA | `[4:0]` emax, `[12:8]` emin — the write pulses `bound_wr_en` |
+| 0x08 | N_WEIGHTS | weights in one pass |
+| 0x09 | N_OC | output channels in the slice |
+| 0x0a | CNT_SEL | which counter CNT_LO/HI returns |
+| 0x40 | STATUS (r) | `[0]` busy, `[1]` done (sticky), `[2]` always 1, `[3]` bound_disagreement |
+| 0x41 | CNT_LO (r) | selected counter, low half |
+| 0x42 | CNT_HI (r) | selected counter, high half |
+
+`mac_src` has three positions because the ECC baseline has to be *runnable*,
+not merely observable: all three configurations then execute over identical
+cycles, so switching one changes the result and nothing else.
+
+`done` is sticky so the host can poll STATUS for it; it clears on the next
+start.
+
+### Area as blocks land
+
+Generic gates, Yosys `synth -flatten`, at the top's defaults
+(`NUM_BOUNDS=16`, FP16, `REPAIR=0`):
+
+| block | cells |
+|---|---|
+| `weight_read_check` (whole read path) | 1,496 |
+| `ctrl` | 349 |
+| `spi_cfg` | 346 |
+
+The read path was 5,095 cells at the old `NUM_BOUNDS=72`. Sizing the bound
+table to the slice depth rather than the layer depth accounts for the 3.4x
+drop, and swapping TMR for parity plus reload is worth roughly another 3x.
+
 ## Parameters
 
 `MODE` selects the bound, matching the Python exactly:

@@ -23,10 +23,13 @@ module bound_table #(
     output wire              disagreement
 );
     localparam BOUND_W = TWO_SIDED ? 2*EXP_W : EXP_W;
-    localparam [ADDR_W-1:0] LAST_ADDR = DEPTH - 1;
+    // One bit wider than the address so the compare is well sized. When DEPTH
+    // is a power of two every address is in range and this folds away, which
+    // is correct rather than a bug.
+    localparam [ADDR_W:0] DEPTH_EXT = DEPTH;
 
-    wire write_row = wr_en && (wr_addr <= LAST_ADDR);
-    wire read_row = rd_addr <= LAST_ADDR;
+    wire write_row = wr_en && ({1'b0, wr_addr} < DEPTH_EXT);
+    wire read_row = ({1'b0, rd_addr} < DEPTH_EXT);
     wire [BOUND_W-1:0] wr_bounds;
     wire [BOUND_W:0] bank_a_word, bank_b_word, bank_c_word;
     wire [BOUND_W:0] voted = (bank_a_word & bank_b_word) |

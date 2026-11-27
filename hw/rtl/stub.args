@@ -1,0 +1,7 @@
+# Not yet implemented. Every file removed from this list is a block delivered.
+# A stub that is clocked out of reset kills the simulation; see stub_guard.vh.
+rtl/stub/addrgen.v
+rtl/stub/mac_array.v
+rtl/stub/actwin.v
+rtl/stub/golden.v
+rtl/stub/counters.v

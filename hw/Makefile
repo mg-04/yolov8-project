@@ -67,3 +67,34 @@ synth:
 
 clean:
 	rm -rf $(BUILD) verif/syn verif/par syn/WORK/* par/src/WORK pwr/WORK
+
+# --- chip top -------------------------------------------------------------
+# The top is real at the boundary and stubbed inside. This target must always
+# pass: a change that breaks it does not merge. UNUSED and DECLFILENAME are
+# waived because a stub legitimately ignores its ports; CMPCONST is waived
+# because the bound-table range check folds away at a power-of-two DEPTH.
+RTL_ALL := $(shell grep -hv '^\#' rtl/rtl.args rtl/stub.args model/model.args)
+LINTWAIVE := -Wno-UNUSED -Wno-DECLFILENAME -Wno-CMPCONST
+
+.PHONY: lint-top test-top stubs
+lint-top:
+	@$(VERILATOR) --lint-only -Wall $(LINTWAIVE) -Irtl --top-module top $(RTL_ALL)
+	@echo "lint-top OK  ($(words $(shell grep -hv '^\#' rtl/stub.args)) stubs remaining)"
+
+stubs:
+	@echo "stubs remaining:"
+	@grep -hv '^\#' rtl/stub.args | sed 's/^/  /'
+
+test-top: $(BUILD)/top/simv
+	@cd $(BUILD)/top && ./simv -q
+
+$(BUILD)/top/simv: $(RTL_ALL) verif/src/tb_top.sv rtl/stub_guard.vh Makefile
+	@mkdir -p $(BUILD)/top
+	@cd $(BUILD)/top && $(VCS) -sverilog -full64 -q -top tb_top -o simv \
+	  +define+STUB_WARN +incdir+$(abspath rtl) \
+	  $(addprefix $(abspath .)/,$(RTL_ALL) verif/src/tb_top.sv)
+
+# STUB_WARN is here only while the datapath is stubbed: it downgrades the
+# stub guard from fatal to a warning so the sequencer can be seen to complete.
+# Drop the define once the last file leaves rtl/stub.args, and a stubbed path
+# becomes a hard failure again.

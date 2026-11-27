@@ -13,7 +13,7 @@ module tb_weight_read_check;
     reg [21:0] inject_mask = 0;
     reg [8:0]  inject_addr = 0;
     reg        inject_act_region = 0;
-    reg bypass_sentry = 0;
+    reg [1:0] mac_src = 2'd0;   // 0 sentry, 1 raw, 2 ecc
     reg [15:0] payload = 16'h3d55;
     wire [21:0] sram_word;
 
@@ -27,13 +27,14 @@ module tb_weight_read_check;
     wire [21:0] ecc_error_mask;
 
     secded_encode encode (.data_in(payload), .word_out(sram_word));
-    weight_read_check #(.NUM_BOUNDS(3)) dut (
+    weight_read_check #(.NUM_BOUNDS(3), .ADDR_W(9)) dut (
         .clk(clk), .rst(rst), .bound_wr_en(bound_wr_en), .bound_wr_addr(bound_wr_addr),
         .bound_wr_emin(bound_wr_emin), .bound_wr_emax(bound_wr_emax),
-        .read_valid(read_valid), .weight_addr(weight_addr), .sram_word(sram_word),
+        .read_valid(read_valid), .weight_addr(weight_addr),
+        .bound_addr(weight_addr[8:7]), .sram_word(sram_word),
         .inject_enable(inject_enable), .inject_addr(inject_addr),
         .inject_act_region(inject_act_region),
-        .inject_mask(inject_mask), .bypass_sentry(bypass_sentry),
+        .inject_mask(inject_mask), .mac_src(mac_src),
         .weight_out(weight_out), .weight_valid(weight_valid), .sentry_flag(sentry_flag),
         .inject_hit(inject_hit),
         .bound_valid(bound_valid), .bound_disagreement(),
@@ -42,13 +43,14 @@ module tb_weight_read_check;
         .ecc_corrected(ecc_corrected), .ecc_uncorrectable(ecc_uncorrectable),
         .ecc_syndrome(ecc_syndrome), .ecc_error_mask(ecc_error_mask)
     );
-    weight_read_check #(.NUM_BOUNDS(3), .TWO_SIDED(1), .REPAIR(1)) search (
+    weight_read_check #(.NUM_BOUNDS(3), .ADDR_W(9), .TWO_SIDED(1), .REPAIR(1)) search (
         .clk(clk), .rst(rst), .bound_wr_en(bound_wr_en), .bound_wr_addr(bound_wr_addr),
         .bound_wr_emin(bound_wr_emin), .bound_wr_emax(bound_wr_emax),
-        .read_valid(read_valid), .weight_addr(weight_addr), .sram_word(sram_word),
+        .read_valid(read_valid), .weight_addr(weight_addr),
+        .bound_addr(weight_addr[8:7]), .sram_word(sram_word),
         .inject_enable(inject_enable), .inject_addr(inject_addr),
         .inject_act_region(inject_act_region),
-        .inject_mask(inject_mask), .bypass_sentry(1'b0),
+        .inject_mask(inject_mask), .mac_src(2'd0),
         .weight_out(search_weight), .weight_valid(search_valid), .sentry_flag(search_flag),
         .inject_hit(search_inject_hit),
         .bound_valid(), .bound_disagreement(search_disagreement),
@@ -128,11 +130,11 @@ module tb_weight_read_check;
         #1;
         if ({weight_valid, sentry_flag, bound_valid, search_valid} !== 4'b0)
             $fatal(1, "out-of-range address must not alias a bound");
-        bypass_sentry = 1;
+        mac_src = 2'd1;
         #1;
         if (!weight_valid || weight_out !== payload || bound_valid || sentry_flag)
-            $fatal(1, "bypassed read must pass through without a bound");
-        bypass_sentry = 0;
+            $fatal(1, "raw-source read must pass through without a bound");
+        mac_src = 2'd0;
         weight_addr = 0;
 
         force search.bounds.bank_b_word = 11'd0;
@@ -151,11 +153,18 @@ module tb_weight_read_check;
             weight_out !== 16'h0155 || !search_flag || search_weight !== payload ||
             weight_matches_golden || !search_matches_golden)
             $fatal(1, "parallel repair and reference after an exponent flip");
-        bypass_sentry = 1;
+        mac_src = 2'd1;
         #1;
         if (weight_out !== 16'h7d55 || !sentry_flag || golden_weight !== payload)
-            $fatal(1, "bypass must forward the faulted word and preserve flags");
-        bypass_sentry = 0;
+            $fatal(1, "raw source must forward the faulted word and preserve flags");
+        // The ECC baseline must be runnable, not just observable.
+        mac_src = 2'd2;
+        #1;
+        if (weight_out !== golden_weight || weight_out !== payload || !ecc_corrected)
+            $fatal(1, "the ECC source must deliver the corrected word to the MACs");
+        if (!sentry_flag)
+            $fatal(1, "the bound check must keep reporting while ECC drives the MACs");
+        mac_src = 2'd0;
 
         payload = 16'h4400;
         #1;

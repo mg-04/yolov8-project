@@ -1,0 +1,2 @@
+# Simulation models standing in for vendor macros. Never synthesised.
+model/sram_22b.v

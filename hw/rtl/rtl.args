@@ -1,0 +1,9 @@
+# Implemented RTL. Order matters only for `include search paths.
+rtl/sentry_check.v
+rtl/secded.v
+rtl/bound_table.v
+rtl/fault_inject.v
+rtl/weight_read_check.v
+rtl/spi_cfg.v
+rtl/ctrl.v
+rtl/top.v

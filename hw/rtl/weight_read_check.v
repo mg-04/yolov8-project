@@ -1,13 +1,12 @@
 // Combinational read path for an external FP16 + SECDED SRAM. The ECC branch
 // supplies the reference result and the range-check branch feeds the datapath.
 module weight_read_check #(
-    parameter NUM_BOUNDS = 72,
-    parameter GROUP_SHIFT = 7,
+    parameter NUM_BOUNDS = 16,
     parameter TWO_SIDED = 0,
     parameter REPAIR = 0,
-    parameter BOUND_ADDR_W = NUM_BOUNDS > 1 ? $clog2(NUM_BOUNDS) : 1,
-    parameter ADDR_W = BOUND_ADDR_W + GROUP_SHIFT,
-    parameter ACT_BASE = (1 << ADDR_W)
+    parameter ADDR_W = 12,
+    parameter ACT_BASE = (1 << ADDR_W),
+    parameter BOUND_ADDR_W = NUM_BOUNDS > 1 ? $clog2(NUM_BOUNDS) : 1
 )(
     input  wire                               clk,
     input  wire                               rst,
@@ -16,13 +15,14 @@ module weight_read_check #(
     input  wire [4:0]                         bound_wr_emin,
     input  wire [4:0]                         bound_wr_emax,
     input  wire                               read_valid,
-    input  wire [BOUND_ADDR_W+GROUP_SHIFT-1:0] weight_addr,
+    input  wire [ADDR_W-1:0]                  weight_addr,
+    input  wire [BOUND_ADDR_W-1:0]            bound_addr,
     input  wire [21:0]                        sram_word,
     input  wire                               inject_enable,
     input  wire [ADDR_W-1:0]                  inject_addr,
     input  wire                               inject_act_region,
     input  wire [21:0]                        inject_mask,
-    input  wire                               bypass_sentry,
+    input  wire [1:0]                         mac_src,
     output wire [15:0]                        weight_out,
     output wire                               weight_valid,
     output wire                               sentry_flag,
@@ -37,6 +37,12 @@ module weight_read_check #(
     output wire [4:0]                         ecc_syndrome,
     output wire [21:0]                        ecc_error_mask
 );
+    // Which value reaches the MACs. All three run over identical cycles, so a
+    // campaign can switch configuration without changing the schedule.
+    localparam [1:0] SRC_SENTRY = 2'd0;   // bound-checked, repaired
+    localparam [1:0] SRC_RAW    = 2'd1;   // undefended
+    localparam [1:0] SRC_ECC    = 2'd2;   // SECDED-corrected
+
     wire [21:0] read_word;
     wire injected;
     wire [4:0] emin, emax;
@@ -61,7 +67,7 @@ module weight_read_check #(
     ) bounds (
         .clk(clk), .rst(rst), .wr_en(bound_wr_en), .wr_addr(bound_wr_addr),
         .wr_emin(bound_wr_emin), .wr_emax(bound_wr_emax),
-        .rd_addr(weight_addr[BOUND_ADDR_W+GROUP_SHIFT-1:GROUP_SHIFT]),
+        .rd_addr(bound_addr),
         .rd_emin(emin), .rd_emax(emax), .rd_valid(bounds_ready), .disagreement(disagreement)
     );
     sentry_check #(.EXP_W(5), .MANT_W(10), .MODE(TWO_SIDED ? 1 : 0), .REPAIR(REPAIR)) sentry (
@@ -69,8 +75,9 @@ module weight_read_check #(
         .w_out(sentry_weight), .flag(out_of_range)
     );
 
-    assign weight_out = bypass_sentry ? read_word[15:0] : sentry_weight;
-    assign weight_valid = read_valid && (bypass_sentry || bounds_ready);
+    assign weight_out = (mac_src == SRC_RAW) ? read_word[15:0] :
+                        (mac_src == SRC_ECC) ? golden_weight    : sentry_weight;
+    assign weight_valid = read_valid && ((mac_src != SRC_SENTRY) || bounds_ready);
     assign sentry_flag = read_valid && bounds_ready && out_of_range;
     assign bound_valid = read_valid && bounds_ready;
     assign bound_disagreement = read_valid && disagreement;
